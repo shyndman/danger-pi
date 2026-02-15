@@ -40,7 +40,7 @@ async function checkForNewVersion(currentVersion: string): Promise<string | unde
 		const data = (await response.json()) as { version?: string };
 		const latestVersion = data.version;
 
-		if (latestVersion && latestVersion !== currentVersion) {
+		if (latestVersion && latestVersion !== currentVersion.split("+")[0]) {
 			return latestVersion;
 		}
 
