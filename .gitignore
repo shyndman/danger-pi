@@ -1,9 +1,15 @@
+.notes/
+
 # Dependencies
 node_modules/
 .npm/
 
 # Build output
 dist/
+*.log
+.DS_Store
+*.tsbuildinfo
+# packages/*/node_modules/
 packages/*/dist/
 packages/*/dist-chrome/
 packages/*/dist-firefox/
