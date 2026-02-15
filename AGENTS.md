@@ -1,3 +1,9 @@
+**User Aims (local customization)**
+
+- Rapid process experiments that favor speed over polish to discover what works
+- Keep changes lightweight so upstream merges stay easy
+- Accept non-ideal implementations temporarily if they accelerate learning
+
 # Development Rules
 
 ## Default Context

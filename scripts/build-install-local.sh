@@ -59,17 +59,19 @@ trap cleanup EXIT INT TERM HUP
 
 cp "$UTILS_PACKAGE_JSON" "$TMP_BACKUP"
 
-echo "Patching version in packages/utils/package.json to +local"
-UTILS_PACKAGE_JSON="$UTILS_PACKAGE_JSON" bun -e '
+echo "Patching version in packages/utils/package.json to +local-{yymmdd-hhmmss}"
+LOCAL_SUFFIX="local-$(date +%y%m%d-%H%M%S)"
+UTILS_PACKAGE_JSON="$UTILS_PACKAGE_JSON" LOCAL_SUFFIX="$LOCAL_SUFFIX" bun -e '
 const file = Bun.env.UTILS_PACKAGE_JSON;
 if (!file) throw new Error("UTILS_PACKAGE_JSON not set");
 
 const packageJson = await Bun.file(file).json() as Record<string, unknown>;
 const version = String(packageJson.version ?? "");
 if (!version) throw new Error("packages/utils/package.json missing version");
-
 const baseVersion = version.split("+")[0];
-packageJson.version = `${baseVersion}+local`;
+
+const suffix = Bun.env.LOCAL_SUFFIX;
+packageJson.version = `${baseVersion}+${suffix}`;
 
 await Bun.write(file, `${JSON.stringify(packageJson, null, "\t")}\n`);
 '
