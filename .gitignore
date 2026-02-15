@@ -1,6 +1,5 @@
 .notes/
-
-# Dependencies
+openspec/
 node_modules/
 .npm/
 
