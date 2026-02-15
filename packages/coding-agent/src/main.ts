@@ -103,7 +103,14 @@ async function runInteractiveMode(
 	versionCheckPromise: Promise<string | undefined>,
 	initialMessages: string[],
 	setExtensionUIContext: (uiContext: ExtensionUIContext, hasUI: boolean) => void,
-	lspServers: Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }> | undefined,
+	lspServers:
+		| Array<{
+				name: string;
+				status: "ready" | "error";
+				fileTypes: string[];
+				error?: string;
+		  }>
+		| undefined,
 	mcpManager: MCPManager | undefined,
 	initialMessage?: string,
 	initialImages?: ImageContent[],
@@ -394,7 +401,9 @@ async function buildSessionOptions(
 			}
 		} else if (resolved.model) {
 			options.model = resolved.model;
-			settings.overrideModelRoles({ default: `${resolved.model.provider}/${resolved.model.id}` });
+			settings.overrideModelRoles({
+				default: `${resolved.model.provider}/${resolved.model.id}`,
+			});
 			if (!parsed.thinking && resolved.thinkingLevel) {
 				options.thinkingLevel = resolved.thinkingLevel;
 			}
