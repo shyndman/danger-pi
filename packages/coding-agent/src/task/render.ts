@@ -540,6 +540,7 @@ function renderAgentProgress(
 	}
 
 	lines.push(statusLine);
+	lines.push(`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", `agent://${progress.id}`)}`);
 
 	lines.push(...renderTaskSection(progress.assignment ?? progress.task, continuePrefix, expanded, theme));
 
@@ -775,6 +776,7 @@ function renderAgentResult(result: SingleResult, isLast: boolean, expanded: bool
 	}
 
 	lines.push(statusLine);
+	lines.push(`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", `agent://${result.id}`)}`);
 
 	lines.push(...renderTaskSection(result.assignment ?? result.task, continuePrefix, expanded, theme));
 
