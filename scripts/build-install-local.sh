@@ -99,3 +99,13 @@ install_file_atomic "$NATIVE_ADDON" "$INSTALL_DIR/$(basename "$NATIVE_ADDON")"
 
 echo "Installed binary: $INSTALL_DIR/omp"
 echo "Installed native addon: $INSTALL_DIR/$(basename "$NATIVE_ADDON")"
+
+if [[ "${SKIP_LOCAL_REGISTRY_SYNC:-0}" != "1" ]]; then
+	echo "Publishing workspace packages to local registry"
+	if ! "$SCRIPT_DIR/local-registry-setup.sh"; then
+		echo "Local registry setup failed" >&2
+		exit 1
+	fi
+else
+	echo "Skipping local registry sync (SKIP_LOCAL_REGISTRY_SYNC=1)"
+fi
