@@ -2,6 +2,7 @@
 openspec/
 node_modules/
 .npm/
+worktrees/
 
 # Build output
 dist/
