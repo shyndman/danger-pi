@@ -32,9 +32,16 @@ case "$(uname -m)" in
 		exit 1
 		;;
 esac
-
-NATIVE_ADDON="$REPO_ROOT/packages/natives/native/pi_natives.${PLATFORM}-${ARCH}.node"
+NATIVE_DIR="$REPO_ROOT/packages/natives/native"
 TMP_BACKUP="$(mktemp "${TMPDIR:-/tmp}/omp-utils-package.XXXXXX")"
+declare -a NATIVE_CANDIDATES=()
+declare -a NATIVE_ADDON_FILES=()
+if [ "$ARCH" = "x64" ]; then
+	NATIVE_CANDIDATES+=("$NATIVE_DIR/pi_natives.${PLATFORM}-${ARCH}-modern.node")
+	NATIVE_CANDIDATES+=("$NATIVE_DIR/pi_natives.${PLATFORM}-${ARCH}-baseline.node")
+else
+	NATIVE_CANDIDATES+=("$NATIVE_DIR/pi_natives.${PLATFORM}-${ARCH}.node")
+fi
 
 install_file_atomic() {
 	local source_path="$1"
@@ -44,6 +51,36 @@ install_file_atomic() {
 	cp "$source_path" "$temp_path"
 	mv -f "$temp_path" "$destination_path"
 }
+
+native_addons_present() {
+	for candidate in "${NATIVE_CANDIDATES[@]}"; do
+		if [ -f "$candidate" ]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+ensure_native_addons() {
+	if native_addons_present; then
+		return 0
+	fi
+	echo "Native addon artifacts missing; building via packages/natives"
+	(
+		cd "$REPO_ROOT"
+		bun --cwd=packages/natives run build:native
+	)
+}
+
+collect_native_addons() {
+	NATIVE_ADDON_FILES=()
+	for candidate in "${NATIVE_CANDIDATES[@]}"; do
+		if [ -f "$candidate" ]; then
+			NATIVE_ADDON_FILES+=("$candidate")
+		fi
+	done
+}
+
 
 cleanup() {
 	local exit_code=$?
@@ -76,6 +113,9 @@ packageJson.version = `${baseVersion}+${suffix}`;
 await Bun.write(file, `${JSON.stringify(packageJson, null, "\t")}\n`);
 '
 
+ensure_native_addons
+
+
 echo "Building binary"
 (
 	cd "$REPO_ROOT"
@@ -86,19 +126,25 @@ if [ ! -f "$DIST_BINARY" ]; then
 	echo "Built binary not found: $DIST_BINARY" >&2
 	exit 1
 fi
-
-if [ ! -f "$NATIVE_ADDON" ]; then
-	echo "Native addon not found: $NATIVE_ADDON" >&2
+collect_native_addons
+if [ "${#NATIVE_ADDON_FILES[@]}" -eq 0 ]; then
+	echo "Native addon not found. Expected one of:" >&2
+	for candidate in "${NATIVE_CANDIDATES[@]}"; do
+		echo "  - $candidate" >&2
+	done
 	exit 1
 fi
-
 mkdir -p "$INSTALL_DIR"
 install_file_atomic "$DIST_BINARY" "$INSTALL_DIR/omp"
 chmod +x "$INSTALL_DIR/omp"
-install_file_atomic "$NATIVE_ADDON" "$INSTALL_DIR/$(basename "$NATIVE_ADDON")"
+for addon in "${NATIVE_ADDON_FILES[@]}"; do
+	install_file_atomic "$addon" "$INSTALL_DIR/$(basename "$addon")"
+done
 
 echo "Installed binary: $INSTALL_DIR/omp"
-echo "Installed native addon: $INSTALL_DIR/$(basename "$NATIVE_ADDON")"
+for addon in "${NATIVE_ADDON_FILES[@]}"; do
+	echo "Installed native addon: $INSTALL_DIR/$(basename "$addon")"
+done
 
 if [[ "${SKIP_LOCAL_REGISTRY_SYNC:-0}" != "1" ]]; then
 	echo "Publishing workspace packages to local registry"
