@@ -14,7 +14,19 @@ import type { SkillsSettings } from "./config/settings";
 import { type ContextFile, loadCapability, type SystemPrompt as SystemPromptFile } from "./discovery";
 import { loadSkills, type Skill } from "./extensibility/skills";
 import customSystemPromptTemplate from "./prompts/system/custom-system-prompt.md" with { type: "text" };
-import systemPromptTemplate from "./prompts/system/system-prompt.md" with { type: "text" };
+import systemPromptTemplate from "./prompts/system/alt-system-prompt.md" with { type: "text" };
+import type { ToolName } from "./tools";
+
+/** Conditional startup debug prints (stderr) when PI_DEBUG_STARTUP is set */
+const debugStartup = $env.PI_DEBUG_STARTUP ? (stage: string) => process.stderr.write(`[startup] ${stage}\n`) : () => {};
+
+interface GitContext {
+	isRepo: boolean;
+	currentBranch: string;
+	mainBranch: string;
+	status: string;
+	commits: string;
+}
 
 function firstNonEmpty(...values: (string | undefined | null)[]): string | null {
 	for (const value of values) {
