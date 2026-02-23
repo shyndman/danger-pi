@@ -1,16 +1,21 @@
-**User Aims (local customization)**
+
+# Development Rules
+
+## THIS IS A FORK: User Aims (local customization)
+
+Major architectural changes are possible, but smart surgical insertions are a lot more likely to be built.
 
 - Rapid process experiments that favor speed over polish to discover what works
 - Keep changes lightweight so upstream merges stay easy
 - Accept non-ideal implementations temporarily if they accelerate learning
-
-# Development Rules
 
 ## Default Context
 
 This repo contains multiple packages, but **`packages/coding-agent/`** is the primary focus. Unless otherwise specified, assume work refers to this package.
 
 **Terminology**: When the user says "agent" or asks "why is agent doing X", they mean the **coding-agent package implementation**, not you (the assistant). The coding-agent is a CLI tool that uses Claude—questions about its behavior refer to the code in `packages/coding-agent/`, not your current session.
+
+**Multi-block submissions**: interactive operators can now stack several slash commands (batchable builtins like `/plan` or `/skill:<name>`) followed by free-form text in one submit. Each slash command must appear at the start of its own line; unsupported UI commands (e.g., `/settings`, `/tree`) raise a warning and abort the batch. Plain text from all non-command lines is concatenated and sent after the command blocks finish.
 
 ### Package Structure
 
@@ -124,7 +129,7 @@ $`do-stuff ${tmpFile}`.quiet().nothrow();
 
 ### Sleep
 
-**Prefer** `await Bun.sleep(ms)`  
+**Prefer** `await Bun.sleep(ms)`
 **Avoid** `new Promise((resolve) => setTimeout(resolve, ms))`
 
 ### Node Module Imports

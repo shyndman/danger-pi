@@ -137,10 +137,26 @@ export type AgentSessionEvent =
 			willRetry: boolean;
 			errorMessage?: string;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+	  }
 	| { type: "ttsr_triggered"; rules: Rule[] }
-	| { type: "todo_reminder"; todos: TodoItem[]; attempt: number; maxAttempts: number };
+	| {
+			type: "todo_reminder";
+			todos: TodoItem[];
+			attempt: number;
+			maxAttempts: number;
+	  };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -558,7 +574,10 @@ export class AgentSession {
 						this.#ensureTtsrResumePromise();
 						this.agent.abort();
 						// Notify extensions (fire-and-forget, does not block abort)
-						this.#emitSessionEvent({ type: "ttsr_triggered", rules: matches }).catch(() => {});
+						this.#emitSessionEvent({
+							type: "ttsr_triggered",
+							rules: matches,
+						}).catch(() => {});
 						// Schedule retry after a short delay
 						const retryToken = ++this.#ttsrRetryToken;
 						const generation = this.#promptGeneration;
@@ -591,7 +610,9 @@ export class AgentSession {
 								// Inject TTSR rules as system reminder before retry
 								const injection = this.#getTtsrInjectionContent();
 								if (injection) {
-									const details = { rules: injection.rules.map(rule => rule.name) };
+									const details = {
+										rules: injection.rules.map(rule => rule.name),
+									};
 									this.agent.appendMessage({
 										role: "custom",
 										customType: "ttsr-injection",
@@ -695,7 +716,12 @@ export class AgentSession {
 			if (event.message.role === "toolResult") {
 				const { toolName, details, isError, content } = event.message as {
 					toolName?: string;
-					details?: { path?: string; phases?: TodoPhase[]; report?: string; startedAt?: string };
+					details?: {
+						path?: string;
+						phases?: TodoPhase[];
+						report?: string;
+						startedAt?: string;
+					};
 					isError?: boolean;
 					content?: Array<TextContent | ImageContent>;
 				};
@@ -931,7 +957,13 @@ export class AgentSession {
 		if (this.#pendingTtsrInjections.length === 0) return undefined;
 		const rules = this.#pendingTtsrInjections;
 		const content = rules
-			.map(r => renderPromptTemplate(ttsrInterruptTemplate, { name: r.name, path: r.path, content: r.content }))
+			.map(r =>
+				renderPromptTemplate(ttsrInterruptTemplate, {
+					name: r.name,
+					path: r.path,
+					content: r.content,
+				}),
+			)
 			.join("\n\n");
 		this.#pendingTtsrInjections = [];
 		return { content, rules };
@@ -1332,7 +1364,10 @@ export class AgentSession {
 			this.#turnIndex = 0;
 			await this.#extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
-			await this.#extensionRunner.emit({ type: "agent_end", messages: event.messages });
+			await this.#extensionRunner.emit({
+				type: "agent_end",
+				messages: event.messages,
+			});
 		} else if (event.type === "turn_start") {
 			const hookEvent: TurnStartEvent = {
 				type: "turn_start",
@@ -1396,7 +1431,10 @@ export class AgentSession {
 			};
 			await this.#extensionRunner.emit(extensionEvent);
 		} else if (event.type === "auto_compaction_start") {
-			await this.#extensionRunner.emit({ type: "auto_compaction_start", reason: event.reason });
+			await this.#extensionRunner.emit({
+				type: "auto_compaction_start",
+				reason: event.reason,
+			});
 		} else if (event.type === "auto_compaction_end") {
 			await this.#extensionRunner.emit({
 				type: "auto_compaction_end",
@@ -1421,7 +1459,10 @@ export class AgentSession {
 				finalError: event.finalError,
 			});
 		} else if (event.type === "ttsr_triggered") {
-			await this.#extensionRunner.emit({ type: "ttsr_triggered", rules: event.rules });
+			await this.#extensionRunner.emit({
+				type: "ttsr_triggered",
+				rules: event.rules,
+			});
 		} else if (event.type === "todo_reminder") {
 			await this.#extensionRunner.emit({
 				type: "todo_reminder",
@@ -1480,7 +1521,9 @@ export class AgentSession {
 				await this.#extensionRunner.emit({ type: "session_shutdown" });
 			}
 		} catch (error) {
-			logger.warn("Failed to emit session_shutdown event", { error: String(error) });
+			logger.warn("Failed to emit session_shutdown event", {
+				error: String(error),
+			});
 		}
 		this.#cancelPostPromptTasks();
 		const drained = await this.#asyncJobManager?.dispose({ timeoutMs: 3_000 });
@@ -1703,7 +1746,10 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model; thinkingLevel: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{
+		model: Model;
+		thinkingLevel: ThinkingLevel;
+	}> {
 		return this.#scopedModels;
 	}
 
@@ -1917,8 +1963,18 @@ export class AgentSession {
 		}
 
 		const message = options?.synthetic
-			? { role: "developer" as const, content: userContent, attribution: "agent" as const, timestamp: Date.now() }
-			: { role: "user" as const, content: userContent, attribution: "user" as const, timestamp: Date.now() };
+			? {
+					role: "developer" as const,
+					content: userContent,
+					attribution: "agent" as const,
+					timestamp: Date.now(),
+				}
+			: {
+					role: "user" as const,
+					content: userContent,
+					attribution: "user" as const,
+					timestamp: Date.now(),
+				};
 
 		await this.#promptWithMessage(message, expandedText, options);
 		if (!options?.synthetic) {
@@ -1928,7 +1984,11 @@ export class AgentSession {
 
 	async promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice">,
+		options?:
+			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice"> & {
+					triggerTurn?: boolean;
+			  })
+			| undefined,
 	): Promise<void> {
 		const textContent =
 			typeof message.content === "string"
@@ -1942,7 +2002,9 @@ export class AgentSession {
 			if (!options?.streamingBehavior) {
 				throw new AgentBusyError();
 			}
-			await this.sendCustomMessage(message, { deliverAs: options.streamingBehavior });
+			await this.sendCustomMessage(message, {
+				deliverAs: options.streamingBehavior,
+			});
 			return;
 		}
 
@@ -1956,13 +2018,25 @@ export class AgentSession {
 			timestamp: Date.now(),
 		};
 
-		await this.#promptWithMessage(customMessage, textContent, options);
+		if (options?.triggerTurn === false) {
+			await this.sendCustomMessage(message, { triggerTurn: false });
+			return;
+		}
+		const forwardOptions = options
+			? {
+					streamingBehavior: options.streamingBehavior,
+					toolChoice: options.toolChoice,
+				}
+			: undefined;
+		await this.#promptWithMessage(customMessage, textContent, forwardOptions);
 	}
 
 	async #promptWithMessage(
 		message: AgentMessage,
 		expandedText: string,
-		options?: Pick<PromptOptions, "toolChoice" | "images"> & { skipPostPromptRecoveryWait?: boolean },
+		options?: Pick<PromptOptions, "toolChoice" | "images"> & {
+			skipPostPromptRecoveryWait?: boolean;
+		},
 	): Promise<void> {
 		this.#promptInFlight = true;
 		const generation = this.#promptGeneration;
@@ -2134,7 +2208,9 @@ export class AgentSession {
 			getContextUsage: () => this.getContextUsage(),
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
-				const success = await this.newSession({ parentSession: options?.parentSession });
+				const success = await this.newSession({
+					parentSession: options?.parentSession,
+				});
 				if (!success) {
 					return { cancelled: true };
 				}
@@ -2148,7 +2224,9 @@ export class AgentSession {
 				return { cancelled: result.cancelled };
 			},
 			navigateTree: async (targetId, options) => {
-				const result = await this.navigateTree(targetId, { summarize: options?.summarize });
+				const result = await this.navigateTree(targetId, {
+					summarize: options?.summarize,
+				});
 				return { cancelled: result.cancelled };
 			},
 			compact: async instructionsOrOptions => {
@@ -2300,7 +2378,10 @@ export class AgentSession {
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+		options?: {
+			triggerTurn?: boolean;
+			deliverAs?: "steer" | "followUp" | "nextTurn";
+		},
 	): Promise<void> {
 		const appMessage: CustomMessage<T> = {
 			role: "custom",
@@ -2398,8 +2479,14 @@ export class AgentSession {
 	}
 
 	/** Get pending messages (read-only) */
-	getQueuedMessages(): { steering: readonly string[]; followUp: readonly string[] } {
-		return { steering: this.#steeringMessages, followUp: this.#followUpMessages };
+	getQueuedMessages(): {
+		steering: readonly string[];
+		followUp: readonly string[];
+	} {
+		return {
+			steering: this.#steeringMessages,
+			followUp: this.#followUpMessages,
+		};
 	}
 
 	/**
@@ -2575,7 +2662,9 @@ export class AgentSession {
 		try {
 			const oldDirStat = await fs.promises.stat(oldArtifactDir);
 			if (oldDirStat.isDirectory()) {
-				await fs.promises.cp(oldArtifactDir, newArtifactDir, { recursive: true });
+				await fs.promises.cp(oldArtifactDir, newArtifactDir, {
+					recursive: true,
+				});
 			}
 		} catch (err) {
 			if (!isEnoent(err)) {
@@ -2713,7 +2802,11 @@ export class AgentSession {
 			await this.setModel(next.model, next.role);
 		}
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, role: next.role };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			role: next.role,
+		};
 	}
 
 	async #getScopedModelsWithApiKey(): Promise<Array<{ model: Model; thinkingLevel: ThinkingLevel }>> {
@@ -2759,7 +2852,11 @@ export class AgentSession {
 		// Apply thinking level (setThinkingLevel clamps to model capabilities)
 		this.setThinkingLevel(next.thinkingLevel);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: true,
+		};
 	}
 
 	async #cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
@@ -2787,7 +2884,11 @@ export class AgentSession {
 		// Re-clamp thinking level for new model's capabilities without persisting settings
 		this.setThinkingLevel(this.thinkingLevel);
 
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return {
+			model: nextModel,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: false,
+		};
 	}
 
 	/**
@@ -2996,7 +3097,13 @@ export class AgentSession {
 					type: "session.compacting",
 					sessionId: this.sessionId,
 					messages: compactMessages,
-				})) as { context?: string[]; prompt?: string; preserveData?: Record<string, unknown> } | undefined;
+				})) as
+					| {
+							context?: string[];
+							prompt?: string;
+							preserveData?: Record<string, unknown>;
+					  }
+					| undefined;
 
 				hookContext = result?.context;
 				hookPrompt = result?.prompt;
@@ -3207,7 +3314,10 @@ Be thorough - include exact file paths, function names, error messages, and tech
 
 		try {
 			// Send the prompt and wait for completion
-			await this.prompt(handoffPrompt, { expandPromptTemplates: false, synthetic: true });
+			await this.prompt(handoffPrompt, {
+				expandPromptTemplates: false,
+				synthetic: true,
+			});
 			await completionPromise;
 
 			if (!handoffText || this.#handoffAbortController.signal.aborted) {
@@ -3346,9 +3456,14 @@ Be thorough - include exact file paths, function names, error messages, and tech
 			logger.warn("Rewind branch checkpoint missing, falling back to root", {
 				error: error instanceof Error ? error.message : String(error),
 			});
-			this.sessionManager.branchWithSummary(null, report, { startedAt: checkpointState.startedAt });
+			this.sessionManager.branchWithSummary(null, report, {
+				startedAt: checkpointState.startedAt,
+			});
 		}
-		const details = { startedAt: checkpointState.startedAt, rewoundAt: new Date().toISOString() };
+		const details = {
+			startedAt: checkpointState.startedAt,
+			rewoundAt: new Date().toISOString(),
+		};
 		this.agent.appendMessage({
 			role: "custom",
 			customType: "rewind-report",
@@ -3421,7 +3536,9 @@ Be thorough - include exact file paths, function names, error messages, and tech
 
 		const remindersMax = this.settings.get("todo.reminders.max");
 		if (this.#todoReminderCount >= remindersMax) {
-			logger.debug("Todo completion: max reminders reached", { count: this.#todoReminderCount });
+			logger.debug("Todo completion: max reminders reached", {
+				count: this.#todoReminderCount,
+			});
 			return;
 		}
 
@@ -3439,7 +3556,11 @@ Be thorough - include exact file paths, function names, error messages, and tech
 						(task): task is TodoItem & { status: "pending" | "in_progress" } =>
 							task.status === "pending" || task.status === "in_progress",
 					)
-					.map(task => ({ id: task.id, content: task.content, status: task.status })),
+					.map(task => ({
+						id: task.id,
+						content: task.content,
+						status: task.status,
+					})),
 			}))
 			.filter(phase => phase.tasks.length > 0);
 		const incomplete = incompleteByPhase.flatMap(phase => phase.tasks);
@@ -3730,7 +3851,13 @@ Be thorough - include exact file paths, function names, error messages, and tech
 					type: "session.compacting",
 					sessionId: this.sessionId,
 					messages: compactMessages,
-				})) as { context?: string[]; prompt?: string; preserveData?: Record<string, unknown> } | undefined;
+				})) as
+					| {
+							context?: string[];
+							prompt?: string;
+							preserveData?: Record<string, unknown>;
+					  }
+					| undefined;
 
 				hookContext = result?.context;
 				hookPrompt = result?.prompt;
@@ -3887,7 +4014,12 @@ Be thorough - include exact file paths, function names, error messages, and tech
 				details,
 				preserveData,
 			};
-			await this.#emitSessionEvent({ type: "auto_compaction_end", result, aborted: false, willRetry });
+			await this.#emitSessionEvent({
+				type: "auto_compaction_end",
+				result,
+				aborted: false,
+				willRetry,
+			});
 
 			if (!willRetry && compactionSettings.autoContinue !== false) {
 				await this.#promptWithMessage(
@@ -4544,7 +4676,9 @@ Be thorough - include exact file paths, function names, error messages, and tech
 		this.#asyncJobManager?.cancelAll();
 
 		if (!selectedEntry.parentId) {
-			await this.sessionManager.newSession({ parentSession: previousSessionFile });
+			await this.sessionManager.newSession({
+				parentSession: previousSessionFile,
+			});
 		} else {
 			this.sessionManager.createBranchedSession(selectedEntry.parentId);
 		}
@@ -4585,7 +4719,12 @@ Be thorough - include exact file paths, function names, error messages, and tech
 	async navigateTree(
 		targetId: string,
 		options: { summarize?: boolean; customInstructions?: string } = {},
-	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
+	): Promise<{
+		editorText?: string;
+		cancelled: boolean;
+		aborted?: boolean;
+		summaryEntry?: BranchSummaryEntry;
+	}> {
 		const oldLeafId = this.sessionManager.getLeafId();
 
 		// No-op if already at target
@@ -4942,7 +5081,10 @@ Be thorough - include exact file paths, function names, error messages, and tech
 	 */
 	async exportToHtml(outputPath?: string): Promise<string> {
 		const themeName = getCurrentThemeName();
-		return exportSessionToHtml(this.sessionManager, this.state, { outputPath, themeName });
+		return exportSessionToHtml(this.sessionManager, this.state, {
+			outputPath,
+			themeName,
+		});
 	}
 
 	// =========================================================================
