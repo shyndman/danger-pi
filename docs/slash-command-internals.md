@@ -157,7 +157,29 @@ The Extensions dashboard also loads `slash-commands` capability and displays act
    - `string` -> replace prompt text with that string
    - `void/undefined` -> treated as handled; no LLM prompt
 3. **File-based slash commands** (`expandSlashCommand`)  
-   If text still starts with `/`, attempt markdown command expansion.
+   When text still starts with `/`, attempt markdown command expansion.
+
+   ### Multi-block submissions (batch mode)
+
+   Interactive mode now treats a single submission as an ordered list of blocks when:
+
+   - The editor text contains multiple lines, and
+   - At least one leading slash command (`/plan`, `/skill:<name>`, etc.) appears on its own line.
+
+   Block detection is line-oriented:
+
+   1. Each line is normalized to `\n` line endings.
+   2. Lines that begin with `/` and match a known slash command become **command blocks**. Today, only batchable builtins (e.g. `/plan`) and discovered `/skill:<name>` entries participate; UI-only commands such as `/settings`, `/tree`, etc. are explicitly rejected.
+   3. All other lines (including ones that start with `/` but do **not** match a command) are accumulated into **text blocks** while preserving interior blank lines and indentation.
+
+   During submission processing:
+
+   - Command blocks execute sequentially in the original order. If a command fails or is not batch-safe, the entire submission is aborted with an error that points the operator back to the help docs.
+   - `/skill` blocks call `promptCustomMessage` with `triggerTurn = false` whenever there is remaining plain text, so the injected skill context is added to history without starting a turn.
+   - Builtin commands run with their existing handlers. Only commands annotated as `allowBatch` (currently `/plan`) can appear in a multi-block submission; UI commands surface an explicit error instead of running.
+   - After all command blocks finish, every text block is concatenated (order preserved, blank lines intact) and sent through the normal `session.prompt()` pipeline so the LLM sees a single user message that follows the injected command context.
+
+   This flow lets operators stack commands such as `/plan` and `/skill:triage …` before the actual instruction without round-tripping multiple turns. It also ensures legacy behavior remains unchanged when no qualifying slash commands are present—the entire submission is treated as a single text block in that case.
 4. **Prompt templates** (`expandPromptTemplate`)  
    Applied after slash/custom processing.
 5. **Delivery**  

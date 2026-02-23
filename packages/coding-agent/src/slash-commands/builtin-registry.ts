@@ -36,6 +36,7 @@ interface ParsedBuiltinSlashCommand {
 interface BuiltinSlashCommandSpec extends BuiltinSlashCommand {
 	aliases?: string[];
 	allowArgs?: boolean;
+	allowBatch?: boolean;
 	handle: (command: ParsedBuiltinSlashCommand, runtime: BuiltinSlashCommandRuntime) => Promise<void> | void;
 }
 
@@ -84,6 +85,7 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 		description: "Toggle plan mode (agent plans before executing)",
 		inlineHint: "[prompt]",
 		allowArgs: true,
+		allowBatch: true,
 		handle: async (command, runtime) => {
 			await runtime.ctx.handlePlanModeCommand(command.args || undefined);
 			runtime.ctx.editor.setText("");
@@ -232,7 +234,10 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 		description: "Session management commands",
 		subcommands: [
 			{ name: "info", description: "Show session info and stats" },
-			{ name: "delete", description: "Delete current session and return to selector" },
+			{
+				name: "delete",
+				description: "Delete current session and return to selector",
+			},
 		],
 		allowArgs: true,
 		handle: async (command, runtime) => {
@@ -393,24 +398,62 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 				usage: "<name> [--scope project|user] [--url <url>] [-- <command...>]",
 			},
 			{ name: "list", description: "List all configured MCP servers" },
-			{ name: "remove", description: "Remove an MCP server", usage: "<name> [--scope project|user]" },
-			{ name: "test", description: "Test connection to a server", usage: "<name>" },
-			{ name: "reauth", description: "Reauthorize OAuth for a server", usage: "<name>" },
-			{ name: "unauth", description: "Remove OAuth auth from a server", usage: "<name>" },
-			{ name: "enable", description: "Enable an MCP server", usage: "<name>" },
-			{ name: "disable", description: "Disable an MCP server", usage: "<name>" },
+			{
+				name: "remove",
+				description: "Remove an MCP server",
+				usage: "<name> [--scope project|user]",
+			},
+			{
+				name: "test",
+				description: "Test connection to a server",
+				usage: "<name>",
+			},
+			{
+				name: "reauth",
+				description: "Reauthorize OAuth for a server",
+				usage: "<name>",
+			},
+			{
+				name: "unauth",
+				description: "Remove OAuth auth from a server",
+				usage: "<name>",
+			},
+			{
+				name: "disable",
+				description: "Disable an MCP server",
+				usage: "<name>",
+			},
 			{
 				name: "smithery-search",
 				description: "Search Smithery registry and deploy an MCP server",
 				usage: "<keyword> [--scope project|user] [--limit <1-100>] [--semantic]",
 			},
-			{ name: "smithery-login", description: "Login to Smithery and cache API key" },
-			{ name: "smithery-logout", description: "Remove cached Smithery API key" },
-			{ name: "reconnect", description: "Reconnect to a specific MCP server", usage: "<name>" },
+			{
+				name: "smithery-login",
+				description: "Login to Smithery and cache API key",
+			},
+			{
+				name: "smithery-logout",
+				description: "Remove cached Smithery API key",
+			},
+			{
+				name: "reconnect",
+				description: "Reconnect to a specific MCP server",
+				usage: "<name>",
+			},
 			{ name: "reload", description: "Force reload MCP runtime tools" },
-			{ name: "resources", description: "List available resources from connected servers" },
-			{ name: "prompts", description: "List available prompts from connected servers" },
-			{ name: "notifications", description: "Show notification capabilities and subscriptions" },
+			{
+				name: "resources",
+				description: "List available resources from connected servers",
+			},
+			{
+				name: "prompts",
+				description: "List available prompts from connected servers",
+			},
+			{
+				name: "notifications",
+				description: "Show notification capabilities and subscriptions",
+			},
 			{ name: "help", description: "Show help message" },
 		],
 		allowArgs: true,
@@ -430,7 +473,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 				usage: "<name> --host <host> [--user <user>] [--port <port>] [--key <keyPath>]",
 			},
 			{ name: "list", description: "List all configured SSH hosts" },
-			{ name: "remove", description: "Remove an SSH host", usage: "<name> [--scope project|user]" },
+			{
+				name: "remove",
+				description: "Remove an SSH host",
+				usage: "<name> [--scope project|user]",
+			},
 			{ name: "help", description: "Show help message" },
 		],
 		allowArgs: true,
@@ -511,9 +558,15 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 		description: "Inspect and operate memory maintenance",
 		subcommands: [
 			{ name: "view", description: "Show current memory injection payload" },
-			{ name: "clear", description: "Clear persisted memory data and artifacts" },
+			{
+				name: "clear",
+				description: "Clear persisted memory data and artifacts",
+			},
 			{ name: "reset", description: "Alias for clear" },
-			{ name: "enqueue", description: "Enqueue memory consolidation maintenance" },
+			{
+				name: "enqueue",
+				description: "Enqueue memory consolidation maintenance",
+			},
 			{ name: "rebuild", description: "Alias for enqueue" },
 		],
 		allowArgs: true,
@@ -567,6 +620,15 @@ export const BUILTIN_SLASH_COMMAND_DEFS: ReadonlyArray<BuiltinSlashCommand> = BU
 		inlineHint: command.inlineHint,
 	}),
 );
+
+export function isBatchableBuiltinSlashCommand(name: string): boolean {
+	const command = BUILTIN_SLASH_COMMAND_LOOKUP.get(name);
+	return Boolean(command?.allowBatch);
+}
+
+export function isBuiltinSlashCommandName(name: string): boolean {
+	return BUILTIN_SLASH_COMMAND_LOOKUP.has(name);
+}
 
 /**
  * Execute a builtin slash command when it matches known command syntax.

@@ -157,7 +157,11 @@ import { getLatestCompactionEntry } from "./session-manager";
 /** Session-specific events that extend the core AgentEvent */
 export type AgentSessionEvent =
 	| AgentEvent
-	| { type: "auto_compaction_start"; reason: "threshold" | "overflow"; action: "context-full" | "handoff" }
+	| {
+			type: "auto_compaction_start";
+			reason: "threshold" | "overflow";
+			action: "context-full" | "handoff";
+	  }
 	| {
 			type: "auto_compaction_end";
 			action: "context-full" | "handoff";
@@ -168,10 +172,26 @@ export type AgentSessionEvent =
 			/** True when compaction was skipped for a benign reason (no model, no candidates, nothing to compact). */
 			skipped?: boolean;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+	  }
 	| { type: "ttsr_triggered"; rules: Rule[] }
-	| { type: "todo_reminder"; todos: TodoItem[]; attempt: number; maxAttempts: number }
+	| {
+			type: "todo_reminder";
+			todos: TodoItem[];
+			attempt: number;
+			maxAttempts: number;
+	  }
 	| { type: "todo_auto_clear" };
 
 /** Listener function for agent session events */
@@ -663,7 +683,10 @@ export class AgentSession {
 						this.#ensureTtsrResumePromise();
 						this.agent.abort();
 						// Notify extensions (fire-and-forget, does not block abort)
-						this.#emitSessionEvent({ type: "ttsr_triggered", rules: matches }).catch(() => {});
+						this.#emitSessionEvent({
+							type: "ttsr_triggered",
+							rules: matches,
+						}).catch(() => {});
 						// Schedule retry after a short delay
 						const retryToken = ++this.#ttsrRetryToken;
 						const generation = this.#promptGeneration;
@@ -696,7 +719,9 @@ export class AgentSession {
 								// Inject TTSR rules as system reminder before retry
 								const injection = this.#getTtsrInjectionContent();
 								if (injection) {
-									const details = { rules: injection.rules.map(rule => rule.name) };
+									const details = {
+										rules: injection.rules.map(rule => rule.name),
+									};
 									this.agent.appendMessage({
 										role: "custom",
 										customType: "ttsr-injection",
@@ -799,7 +824,12 @@ export class AgentSession {
 			if (event.message.role === "toolResult") {
 				const { toolName, details, isError, content } = event.message as {
 					toolName?: string;
-					details?: { path?: string; phases?: TodoPhase[]; report?: string; startedAt?: string };
+					details?: {
+						path?: string;
+						phases?: TodoPhase[];
+						report?: string;
+						startedAt?: string;
+					};
 					isError?: boolean;
 					content?: Array<TextContent | ImageContent>;
 				};
@@ -1040,7 +1070,13 @@ export class AgentSession {
 		if (this.#pendingTtsrInjections.length === 0) return undefined;
 		const rules = this.#pendingTtsrInjections;
 		const content = rules
-			.map(r => renderPromptTemplate(ttsrInterruptTemplate, { name: r.name, path: r.path, content: r.content }))
+			.map(r =>
+				renderPromptTemplate(ttsrInterruptTemplate, {
+					name: r.name,
+					path: r.path,
+					content: r.content,
+				}),
+			)
 			.join("\n\n");
 		this.#pendingTtsrInjections = [];
 		return { content, rules };
@@ -1441,7 +1477,10 @@ export class AgentSession {
 			this.#nextToolChoiceOverride = undefined;
 			await this.#extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
-			await this.#extensionRunner.emit({ type: "agent_end", messages: event.messages });
+			await this.#extensionRunner.emit({
+				type: "agent_end",
+				messages: event.messages,
+			});
 		} else if (event.type === "turn_start") {
 			const hookEvent: TurnStartEvent = {
 				type: "turn_start",
@@ -1536,7 +1575,10 @@ export class AgentSession {
 				finalError: event.finalError,
 			});
 		} else if (event.type === "ttsr_triggered") {
-			await this.#extensionRunner.emit({ type: "ttsr_triggered", rules: event.rules });
+			await this.#extensionRunner.emit({
+				type: "ttsr_triggered",
+				rules: event.rules,
+			});
 		} else if (event.type === "todo_reminder") {
 			await this.#extensionRunner.emit({
 				type: "todo_reminder",
@@ -1595,7 +1637,9 @@ export class AgentSession {
 				await this.#extensionRunner.emit({ type: "session_shutdown" });
 			}
 		} catch (error) {
-			logger.warn("Failed to emit session_shutdown event", { error: String(error) });
+			logger.warn("Failed to emit session_shutdown event", {
+				error: String(error),
+			});
 		}
 		this.#cancelPostPromptTasks();
 		this.#clearTodoClearTimers();
@@ -1992,7 +2036,10 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model; thinkingLevel?: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{
+		model: Model;
+		thinkingLevel?: ThinkingLevel;
+	}> {
 		return this.#scopedModels;
 	}
 
@@ -2215,8 +2262,18 @@ export class AgentSession {
 
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
 		const message = options?.synthetic
-			? { role: "developer" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() }
-			: { role: "user" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() };
+			? {
+					role: "developer" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				}
+			: {
+					role: "user" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				};
 
 		if (eagerTodoPrelude) {
 			this.#nextToolChoiceOverride = eagerTodoPrelude.toolChoice;
@@ -2239,7 +2296,11 @@ export class AgentSession {
 
 	async promptCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: Pick<PromptOptions, "streamingBehavior" | "toolChoice">,
+		options?:
+			| (Pick<PromptOptions, "streamingBehavior" | "toolChoice"> & {
+					triggerTurn?: boolean;
+			  })
+			| undefined,
 	): Promise<void> {
 		const textContent =
 			typeof message.content === "string"
@@ -2253,7 +2314,9 @@ export class AgentSession {
 			if (!options?.streamingBehavior) {
 				throw new AgentBusyError();
 			}
-			await this.sendCustomMessage(message, { deliverAs: options.streamingBehavior });
+			await this.sendCustomMessage(message, {
+				deliverAs: options.streamingBehavior,
+			});
 			return;
 		}
 
@@ -2267,7 +2330,17 @@ export class AgentSession {
 			timestamp: Date.now(),
 		};
 
-		await this.#promptWithMessage(customMessage, textContent, options);
+		if (options?.triggerTurn === false) {
+			await this.sendCustomMessage(message, { triggerTurn: false });
+			return;
+		}
+		const forwardOptions = options
+			? {
+					streamingBehavior: options.streamingBehavior,
+					toolChoice: options.toolChoice,
+				}
+			: undefined;
+		await this.#promptWithMessage(customMessage, textContent, forwardOptions);
 	}
 
 	async #promptWithMessage(
@@ -2451,7 +2524,9 @@ export class AgentSession {
 			getContextUsage: () => this.getContextUsage(),
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
-				const success = await this.newSession({ parentSession: options?.parentSession });
+				const success = await this.newSession({
+					parentSession: options?.parentSession,
+				});
 				if (!success) {
 					return { cancelled: true };
 				}
@@ -2465,7 +2540,9 @@ export class AgentSession {
 				return { cancelled: result.cancelled };
 			},
 			navigateTree: async (targetId, options) => {
-				const result = await this.navigateTree(targetId, { summarize: options?.summarize });
+				const result = await this.navigateTree(targetId, {
+					summarize: options?.summarize,
+				});
 				return { cancelled: result.cancelled };
 			},
 			compact: async instructionsOrOptions => {
@@ -2687,7 +2764,10 @@ export class AgentSession {
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+		options?: {
+			triggerTurn?: boolean;
+			deliverAs?: "steer" | "followUp" | "nextTurn";
+		},
 	): Promise<void> {
 		const appMessage: CustomMessage<T> = {
 			role: "custom",
@@ -2801,8 +2881,14 @@ export class AgentSession {
 	}
 
 	/** Get pending messages (read-only) */
-	getQueuedMessages(): { steering: readonly string[]; followUp: readonly string[] } {
-		return { steering: this.#steeringMessages, followUp: this.#followUpMessages };
+	getQueuedMessages(): {
+		steering: readonly string[];
+		followUp: readonly string[];
+	} {
+		return {
+			steering: this.#steeringMessages,
+			followUp: this.#followUpMessages,
+		};
 	}
 
 	/**
@@ -3066,7 +3152,9 @@ export class AgentSession {
 		try {
 			const oldDirStat = await fs.promises.stat(oldArtifactDir);
 			if (oldDirStat.isDirectory()) {
-				await fs.promises.cp(oldArtifactDir, newArtifactDir, { recursive: true });
+				await fs.promises.cp(oldArtifactDir, newArtifactDir, {
+					recursive: true,
+				});
 			}
 		} catch (err) {
 			if (!isEnoent(err)) {
@@ -3164,7 +3252,9 @@ export class AgentSession {
 
 		const currentModel = this.model;
 		if (!currentModel) return undefined;
-		const matchPreferences = { usageOrder: this.settings.getStorage()?.getModelUsageOrder() };
+		const matchPreferences = {
+			usageOrder: this.settings.getStorage()?.getModelUsageOrder(),
+		};
 		const roleModels: Array<{
 			role: string;
 			model: Model;
@@ -3215,7 +3305,11 @@ export class AgentSession {
 			this.setThinkingLevel(next.thinkingLevel);
 		}
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, role: next.role };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			role: next.role,
+		};
 	}
 
 	async #getScopedModelsWithApiKey(): Promise<Array<{ model: Model; thinkingLevel?: ThinkingLevel }>> {
@@ -3261,7 +3355,11 @@ export class AgentSession {
 		// Apply the scoped model's configured thinking level
 		this.setThinkingLevel(next.thinkingLevel);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: true,
+		};
 	}
 
 	async #cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
@@ -3289,7 +3387,11 @@ export class AgentSession {
 		// Re-apply the current thinking level for the newly selected model
 		this.setThinkingLevel(this.thinkingLevel);
 
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return {
+			model: nextModel,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: false,
+		};
 	}
 
 	/**
@@ -3484,7 +3586,13 @@ export class AgentSession {
 					type: "session.compacting",
 					sessionId: this.sessionId,
 					messages: compactMessages,
-				})) as { context?: string[]; prompt?: string; preserveData?: Record<string, unknown> } | undefined;
+				})) as
+					| {
+							context?: string[];
+							prompt?: string;
+							preserveData?: Record<string, unknown>;
+					  }
+					| undefined;
 
 				hookContext = result?.context;
 				hookPrompt = result?.prompt;
@@ -3513,14 +3621,21 @@ export class AgentSession {
 					apiKey,
 					customInstructions,
 					this.#compactionAbortController.signal,
-					{ promptOverride: hookPrompt, extraContext: hookContext, remoteInstructions: this.#baseSystemPrompt },
+					{
+						promptOverride: hookPrompt,
+						extraContext: hookContext,
+						remoteInstructions: this.#baseSystemPrompt,
+					},
 				);
 				summary = result.summary;
 				shortSummary = result.shortSummary;
 				firstKeptEntryId = result.firstKeptEntryId;
 				tokensBefore = result.tokensBefore;
 				details = result.details;
-				preserveData = { ...(preserveData ?? {}), ...(result.preserveData ?? {}) };
+				preserveData = {
+					...(preserveData ?? {}),
+					...(result.preserveData ?? {}),
+				};
 			}
 
 			if (this.#compactionAbortController.signal.aborted) {
@@ -3663,7 +3778,9 @@ export class AgentSession {
 		if (handoffSignal.aborted) {
 			onCompletionAbort();
 		} else {
-			handoffSignal.addEventListener("abort", onCompletionAbort, { once: true });
+			handoffSignal.addEventListener("abort", onCompletionAbort, {
+				once: true,
+			});
 		}
 		unsubscribe = this.subscribe(event => {
 			if (event.type === "agent_end") {
@@ -3872,9 +3989,14 @@ export class AgentSession {
 			logger.warn("Rewind branch checkpoint missing, falling back to root", {
 				error: error instanceof Error ? error.message : String(error),
 			});
-			this.sessionManager.branchWithSummary(null, report, { startedAt: checkpointState.startedAt });
+			this.sessionManager.branchWithSummary(null, report, {
+				startedAt: checkpointState.startedAt,
+			});
 		}
-		const details = { startedAt: checkpointState.startedAt, rewoundAt: new Date().toISOString() };
+		const details = {
+			startedAt: checkpointState.startedAt,
+			rewoundAt: new Date().toISOString(),
+		};
 		this.agent.appendMessage({
 			role: "custom",
 			customType: "rewind-report",
@@ -3983,7 +4105,9 @@ export class AgentSession {
 
 		const remindersMax = this.settings.get("todo.reminders.max");
 		if (this.#todoReminderCount >= remindersMax) {
-			logger.debug("Todo completion: max reminders reached", { count: this.#todoReminderCount });
+			logger.debug("Todo completion: max reminders reached", {
+				count: this.#todoReminderCount,
+			});
 			return;
 		}
 
@@ -4001,7 +4125,11 @@ export class AgentSession {
 						(task): task is TodoItem & { status: "pending" | "in_progress" } =>
 							task.status === "pending" || task.status === "in_progress",
 					)
-					.map(task => ({ id: task.id, content: task.content, status: task.status })),
+					.map(task => ({
+						id: task.id,
+						content: task.content,
+						status: task.status,
+					})),
 			}))
 			.filter(phase => phase.tasks.length > 0);
 		const incomplete = incompleteByPhase.flatMap(phase => phase.tasks);
@@ -4313,7 +4441,9 @@ export class AgentSession {
 
 		return resolveModelRoleValue(roleModelStr, availableModels, {
 			settings: this.settings,
-			matchPreferences: { usageOrder: this.settings.getStorage()?.getModelUsageOrder() },
+			matchPreferences: {
+				usageOrder: this.settings.getStorage()?.getModelUsageOrder(),
+			},
 		}).model;
 	}
 
@@ -4366,7 +4496,11 @@ export class AgentSession {
 
 		let action: "context-full" | "handoff" =
 			compactionSettings.strategy === "handoff" && reason !== "overflow" ? "handoff" : "context-full";
-		await this.#emitSessionEvent({ type: "auto_compaction_start", reason, action });
+		await this.#emitSessionEvent({
+			type: "auto_compaction_start",
+			reason,
+			action,
+		});
 		// Abort any older auto-compaction before installing this run's controller.
 		this.#autoCompactionAbortController?.abort();
 		const autoCompactionAbortController = new AbortController();
@@ -4378,7 +4512,7 @@ export class AgentSession {
 				const handoffFocus = AUTO_HANDOFF_THRESHOLD_FOCUS;
 				const handoffResult = await this.handoff(handoffFocus, {
 					autoTriggered: true,
-					signal: this.#autoCompactionAbortController.signal,
+					signal: autoCompactionSignal,
 				});
 				if (!handoffResult) {
 					const aborted = autoCompactionSignal.aborted;
@@ -4494,7 +4628,13 @@ export class AgentSession {
 					type: "session.compacting",
 					sessionId: this.sessionId,
 					messages: compactMessages,
-				})) as { context?: string[]; prompt?: string; preserveData?: Record<string, unknown> } | undefined;
+				})) as
+					| {
+							context?: string[];
+							prompt?: string;
+							preserveData?: Record<string, unknown>;
+					  }
+					| undefined;
 
 				hookContext = result?.context;
 				hookPrompt = result?.prompt;
@@ -4603,7 +4743,10 @@ export class AgentSession {
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
 				details = compactResult.details;
-				preserveData = { ...(preserveData ?? {}), ...(compactResult.preserveData ?? {}) };
+				preserveData = {
+					...(preserveData ?? {}),
+					...(compactResult.preserveData ?? {}),
+				};
 			}
 
 			if (autoCompactionSignal.aborted) {
@@ -4653,7 +4796,13 @@ export class AgentSession {
 				details,
 				preserveData,
 			};
-			await this.#emitSessionEvent({ type: "auto_compaction_end", action, result, aborted: false, willRetry });
+			await this.#emitSessionEvent({
+				type: "auto_compaction_end",
+				action,
+				result,
+				aborted: false,
+				willRetry,
+			});
 
 			if (!willRetry && compactionSettings.autoContinue !== false) {
 				const continuePrompt = async () => {
@@ -5417,7 +5566,9 @@ export class AgentSession {
 		this.#asyncJobManager?.cancelAll();
 
 		if (!selectedEntry.parentId) {
-			await this.sessionManager.newSession({ parentSession: previousSessionFile });
+			await this.sessionManager.newSession({
+				parentSession: previousSessionFile,
+			});
 		} else {
 			this.sessionManager.createBranchedSession(selectedEntry.parentId);
 		}
@@ -5829,7 +5980,10 @@ export class AgentSession {
 	 */
 	async exportToHtml(outputPath?: string): Promise<string> {
 		const themeName = getCurrentThemeName();
-		return exportSessionToHtml(this.sessionManager, this.state, { outputPath, themeName });
+		return exportSessionToHtml(this.sessionManager, this.state, {
+			outputPath,
+			themeName,
+		});
 	}
 
 	// =========================================================================
