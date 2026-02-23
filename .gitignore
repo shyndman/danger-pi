@@ -2,6 +2,7 @@
 openspec/
 node_modules/
 .npm/
+.omp/
 worktrees/
 
 # Build output

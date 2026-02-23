@@ -21,13 +21,7 @@ class StubEditor {
 	}
 }
 
-function createTestContext(): {
-	ctx: InteractiveModeContext;
-	editor: StubEditor;
-	showError: ReturnType<typeof vi.fn>;
-	promptMock: ReturnType<typeof vi.fn>;
-	planMock: ReturnType<typeof vi.fn>;
-} {
+function createTestContext() {
 	const editor = new StubEditor();
 	const showError = vi.fn();
 	const showWarning = vi.fn();
@@ -55,17 +49,17 @@ function createTestContext(): {
 			promptCustomMessage: promptCustomMessageMock,
 			modelRegistry: {} as InteractiveModeContext["session"]["modelRegistry"],
 			sessionId: "test-session",
-		} as InteractiveModeContext["session"],
+		} as unknown as InteractiveModeContext["session"],
 		sessionManager: {
 			getSessionName: () => "existing",
 			setSessionName: vi.fn(async () => {}),
 			getSessionDir: () => ".",
 			getEntries: () => [],
-		} as InteractiveModeContext["sessionManager"],
+		} as unknown as InteractiveModeContext["sessionManager"],
 		settings: {
 			get: () => false,
 			getModelRole: () => "default",
-		} as InteractiveModeContext["settings"],
+		} as unknown as InteractiveModeContext["settings"],
 		keybindings: {} as InteractiveModeContext["keybindings"],
 		agent: {
 			state: { messages: [{ role: "user" }] },
