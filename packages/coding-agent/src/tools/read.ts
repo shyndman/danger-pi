@@ -252,6 +252,14 @@ async function streamLinesFromFile(
 	};
 }
 
+/**
+ * Computes byte size for a base64 string so downstream renderers can surface
+ * payload weight without re-reading files.
+ */
+function calculateBase64ByteSize(base64Data: string): number {
+	return Buffer.from(base64Data, "base64").byteLength;
+}
+
 // Maximum image file size (20MB) - larger images will be rejected to prevent OOM during serialization
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 const MAX_FUZZY_RESULTS = 5;
@@ -541,6 +549,8 @@ export interface ReadToolDetails {
 	isDirectory?: boolean;
 	resolvedPath?: string;
 	meta?: OutputMeta;
+	/** Byte size for image payloads so UI previews can show resource weight. */
+	imageByteSize?: number;
 }
 
 type ReadParams = ReadToolInput;
@@ -656,6 +666,15 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 					throw new ToolError(`Image file too large: ${sizeStr} exceeds ${maxStr} limit.`);
 				} else {
 					const base64 = new Uint8Array(buffer).toBase64();
+					const assignImageResult = (imageData: string, imageMimeType: string, textNote: string) => {
+						content = [
+							{ type: "text", text: textNote },
+							{ type: "image", data: imageData, mimeType: imageMimeType },
+						];
+						const imageByteSize = calculateBase64ByteSize(imageData);
+						details = { imageByteSize };
+						sourcePath = absolutePath;
+					};
 
 					if (this.#autoResizeImages) {
 						// Resize image if needed - catch errors from Photon
@@ -668,28 +687,13 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 								textNote += `\n${dimensionNote}`;
 							}
 
-							content = [
-								{ type: "text", text: textNote },
-								{ type: "image", data: resized.data, mimeType: resized.mimeType },
-							];
-							details = {};
-							sourcePath = absolutePath;
+							assignImageResult(resized.data, resized.mimeType, textNote);
 						} catch {
 							// Fall back to original image on resize failure
-							content = [
-								{ type: "text", text: `Read image file [${mimeType}]` },
-								{ type: "image", data: base64, mimeType },
-							];
-							details = {};
-							sourcePath = absolutePath;
+							assignImageResult(base64, mimeType, `Read image file [${mimeType}]`);
 						}
 					} else {
-						content = [
-							{ type: "text", text: `Read image file [${mimeType}]` },
-							{ type: "image", data: base64, mimeType },
-						];
-						details = {};
-						sourcePath = absolutePath;
+						assignImageResult(base64, mimeType, `Read image file [${mimeType}]`);
 					}
 				}
 			}

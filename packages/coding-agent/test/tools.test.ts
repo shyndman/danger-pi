@@ -165,6 +165,16 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("[Showing lines 1-10 of 100. Use offset=11 to continue]");
 		});
 
+		it("should include image byte-size metadata", async () => {
+			const testFile = path.join(testDir, "pixel.png");
+			const base64Pixel =
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/5+hHgAFgwJ/l4cdOAAAAABJRU5ErkJggg==";
+			fs.writeFileSync(testFile, Buffer.from(base64Pixel, "base64"));
+
+			const result = await readTool.execute("test-image", { path: testFile });
+			expect(result.details?.imageByteSize).toBe(Buffer.from(base64Pixel, "base64").byteLength);
+		});
+
 		it("should handle offset + limit together", async () => {
 			const testFile = path.join(testDir, "offset-limit-test.txt");
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);

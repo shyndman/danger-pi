@@ -265,15 +265,20 @@ export class UiHelpers {
 					}
 
 					if (content.name === "read") {
+						if (!readGroup) {
+							readGroup = new ReadToolGroupComponent({
+								requestRender: () => this.ctx.ui.requestRender(),
+							});
+							readGroup.setExpanded(this.ctx.toolOutputExpanded);
+							this.ctx.chatContainer.addChild(readGroup);
+						}
+						readGroup.updateArgs(content.arguments, content.id);
 						if (hasErrorStop && errorMessage) {
-							if (!readGroup) {
-								readGroup = new ReadToolGroupComponent();
-								readGroup.setExpanded(this.ctx.toolOutputExpanded);
-								this.ctx.chatContainer.addChild(readGroup);
-							}
-							readGroup.updateArgs(content.arguments, content.id);
 							readGroup.updateResult(
-								{ content: [{ type: "text", text: errorMessage }], isError: true },
+								{
+									content: [{ type: "text", text: errorMessage }],
+									isError: true,
+								},
 								false,
 								content.id,
 							);
@@ -309,7 +314,10 @@ export class UiHelpers {
 
 					if (hasErrorStop && errorMessage) {
 						component.updateResult(
-							{ content: [{ type: "text", text: errorMessage }], isError: true },
+							{
+								content: [{ type: "text", text: errorMessage }],
+								isError: true,
+							},
 							false,
 							content.id,
 						);
@@ -482,7 +490,10 @@ export class UiHelpers {
 	}
 
 	queueCompactionMessage(text: string, mode: "steer" | "followUp"): void {
-		this.ctx.compactionQueuedMessages.push({ text, mode } as CompactionQueuedMessage);
+		this.ctx.compactionQueuedMessages.push({
+			text,
+			mode,
+		} as CompactionQueuedMessage);
 		this.ctx.editor.addToHistory(text);
 		this.ctx.editor.setText("");
 		this.ctx.updatePendingMessagesDisplay();

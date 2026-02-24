@@ -56,10 +56,11 @@ export class Image implements Component {
 		let lines: string[];
 
 		if (TERMINAL.imageProtocol) {
-			const result = renderImage(this.#base64Data, this.#dimensions, {
-				maxWidthCells: maxWidth,
-				maxHeightCells: this.#options.maxHeightCells,
-			});
+			const renderOptions: { maxWidthCells: number; maxHeightCells?: number } = { maxWidthCells: maxWidth };
+			if (this.#options.maxHeightCells !== undefined) {
+				renderOptions.maxHeightCells = this.#options.maxHeightCells;
+			}
+			const result = renderImage(this.#base64Data, this.#dimensions, renderOptions);
 
 			if (result) {
 				// Return `rows` lines so TUI accounts for image height

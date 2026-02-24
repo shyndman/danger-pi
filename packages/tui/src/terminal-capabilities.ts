@@ -505,9 +505,13 @@ export function renderImage(
 		}
 	}
 	if (TERMINAL.imageProtocol === ImageProtocol.Iterm2) {
+		const columns = Math.max(1, fit.columns);
+		const rows = Math.max(1, fit.rows);
+		const widthPx = columns * cellDims.widthPx;
+		const heightPx = rows * cellDims.heightPx;
 		const sequence = encodeITerm2(base64Data, {
-			width: fit.columns,
-			height: "auto",
+			width: `${widthPx}px`,
+			height: `${heightPx}px`,
 			preserveAspectRatio: options.preserveAspectRatio ?? true,
 		});
 		return { sequence, rows: fit.rows };
