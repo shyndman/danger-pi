@@ -9,16 +9,12 @@ import { theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext } from "../../modes/types";
 import type { AgentSessionEvent } from "../../session/agent-session";
 import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
-import {
-	executeBuiltinSlashCommand,
-	isBatchableBuiltinSlashCommand,
-	isBuiltinSlashCommandName,
-} from "../../slash-commands/builtin-registry";
+import { executeBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
 import { getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { ensureSupportedImageInput } from "../../utils/image-input";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setSessionTerminalTitle } from "../../utils/title-generator";
-import { type SubmissionBlock, splitSubmissionIntoBlocks } from "./submission-blocks";
+import { runMultiBlockSubmission } from "./multi-block-runner";
 
 interface Expandable {
 	setExpanded(expanded: boolean): void;
@@ -27,10 +23,6 @@ interface Expandable {
 function isExpandable(obj: unknown): obj is Expandable {
 	return typeof obj === "object" && obj !== null && "setExpanded" in obj && typeof obj.setExpanded === "function";
 }
-
-type MultiBlockProcessingResult =
-	| { processed: false }
-	| { processed: true; success: boolean; remainingText: string | null };
 
 export class InputController {
 	constructor(private ctx: InteractiveModeContext) {}
@@ -228,7 +220,12 @@ export class InputController {
 
 			if (!text) return;
 
-			const multiBlockResult = await this.#tryProcessMultiBlockSubmission(text);
+			const multiBlockResult = await runMultiBlockSubmission({
+				ctx: this.ctx,
+				text,
+				handleSkillCommand: (commandText, options) => this.#handleSkillCommand(commandText, options),
+				handleBackgroundCommand: () => this.handleBackgroundCommand(),
+			});
 			if (multiBlockResult.processed) {
 				if (!multiBlockResult.success) {
 					return;
@@ -758,105 +755,6 @@ export class InputController {
 				}
 			});
 		}
-	}
-
-	async #tryProcessMultiBlockSubmission(text: string): Promise<MultiBlockProcessingResult> {
-		if (!text.includes("\n")) {
-			return { processed: false };
-		}
-		if (this.ctx.session.isStreaming || this.ctx.session.isCompacting) {
-			return { processed: false };
-		}
-		const blocks = splitSubmissionIntoBlocks(text, {
-			isSupportedSlashCommand: candidate => this.#isRecognizedSlashCommand(candidate),
-		});
-		const commandCount = blocks.filter(block => block.type === "command").length;
-		if (commandCount === 0 || blocks.length === 1) {
-			return { processed: false };
-		}
-		const editorSnapshot = this.ctx.editor.getText();
-		const textParts: string[] = [];
-		for (let i = 0; i < blocks.length; i += 1) {
-			const block = blocks[i];
-			if (block.type === "command") {
-				const suppressTurn = this.#hasFutureTextBlock(blocks, i);
-				const success = await this.#executeBatchCommandBlock(block.text, suppressTurn);
-				if (!success) {
-					this.ctx.editor.setText(editorSnapshot);
-					return { processed: true, success: false, remainingText: null };
-				}
-			} else {
-				textParts.push(block.text);
-			}
-		}
-		const remainingText = textParts.join("").trim();
-		return {
-			processed: true,
-			success: true,
-			remainingText: remainingText.length > 0 ? remainingText : null,
-		};
-	}
-
-	#hasFutureTextBlock(blocks: SubmissionBlock[], startIndex: number): boolean {
-		for (let i = startIndex + 1; i < blocks.length; i += 1) {
-			const block = blocks[i];
-			if (block.type === "text" && block.text.trim().length > 0) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	async #executeBatchCommandBlock(commandText: string, suppressTurn: boolean): Promise<boolean> {
-		const commandName = this.#parseSlashCommandName(commandText);
-		if (!commandName) {
-			return false;
-		}
-		if (commandName.startsWith("skill:")) {
-			const outcome = await this.#handleSkillCommand(commandText, {
-				addToHistory: false,
-				suppressTurn,
-			});
-			return outcome === "handled";
-		}
-		if (isBuiltinSlashCommandName(commandName)) {
-			if (!isBatchableBuiltinSlashCommand(commandName)) {
-				this.ctx.showError(`The "/${commandName}" command cannot run inside a multi-block submission.`);
-				return false;
-			}
-			const handled = await executeBuiltinSlashCommand(commandText, {
-				ctx: this.ctx,
-				handleBackgroundCommand: () => this.handleBackgroundCommand(),
-			});
-			if (!handled) {
-				this.ctx.showError(`Failed to execute "/${commandName}" command.`);
-			}
-			return handled;
-		}
-		this.ctx.showError(`Unsupported slash command in multi-block submission: ${commandText}`);
-		return false;
-	}
-
-	#parseSlashCommandName(commandText: string): string | null {
-		if (!commandText.startsWith("/")) return null;
-		const body = commandText.slice(1);
-		if (!body) return null;
-		const whitespaceIndex = body.search(/\s/);
-		return whitespaceIndex === -1 ? body : body.slice(0, whitespaceIndex);
-	}
-
-	#isRecognizedSlashCommand(candidate: string): boolean {
-		if (!candidate.startsWith("/")) {
-			return false;
-		}
-		const commandName = this.#parseSlashCommandName(candidate);
-		if (!commandName) {
-			return false;
-		}
-		if (commandName.startsWith("skill:")) {
-			return Boolean(this.ctx.skillCommands?.has(commandName));
-		}
-		return isBuiltinSlashCommandName(commandName);
 	}
 
 	async #handleSkillCommand(

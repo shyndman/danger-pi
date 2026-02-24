@@ -2105,6 +2105,11 @@ export class AgentSession {
 		this.#slashCommands = [...slashCommands];
 	}
 
+	/** Loaded file-based slash commands (read-only). */
+	get fileCommands(): ReadonlyArray<FileSlashCommand> {
+		return this.#slashCommands;
+	}
+
 	/** Custom commands (TypeScript slash commands and MCP prompts) */
 	get customCommands(): ReadonlyArray<LoadedCustomCommand> {
 		if (this.#mcpPromptCommands.length === 0) return this.#customCommands;
