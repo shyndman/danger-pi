@@ -1815,6 +1815,11 @@ export class AgentSession {
 		this.#slashCommands = [...slashCommands];
 	}
 
+	/** Loaded file-based slash commands (read-only). */
+	get fileCommands(): ReadonlyArray<FileSlashCommand> {
+		return this.#slashCommands;
+	}
+
 	/** Custom commands (TypeScript slash commands) */
 	get customCommands(): ReadonlyArray<LoadedCustomCommand> {
 		return this.#customCommands;
