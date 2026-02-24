@@ -2826,6 +2826,8 @@ export class AgentSession {
 			message.details,
 			message.attribution ?? "agent",
 		);
+		this.agent.emitExternalEvent({ type: "message_start", message: appMessage });
+		this.agent.emitExternalEvent({ type: "message_end", message: appMessage });
 	}
 
 	/**
