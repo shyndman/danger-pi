@@ -29,10 +29,7 @@ function flushPendingText(pending: string, result: SubmissionBlock[], trimTraili
 	return pending;
 }
 
-export function splitSubmissionIntoBlocks(
-	submission: string,
-	options: SplitSubmissionOptions,
-): SubmissionBlock[] {
+export function splitSubmissionIntoBlocks(submission: string, options: SplitSubmissionOptions): SubmissionBlock[] {
 	const normalized = normalizeNewlines(submission);
 	const lines = normalized.split("\n");
 	const result: SubmissionBlock[] = [];

@@ -26,14 +26,14 @@ class FakeContainer {
 	}
 }
 
-import { UserMessageComponent } from "../src/modes/components/user-message";
 import { CustomMessageComponent } from "../src/modes/components/custom-message";
-import { UiHelpers } from "../src/modes/utils/ui-helpers";
+import { UserMessageComponent } from "../src/modes/components/user-message";
 import type { InteractiveModeContext } from "../src/modes/types";
+import { UiHelpers } from "../src/modes/utils/ui-helpers";
 import {
+	type CustomMessage,
 	MULTI_BLOCK_COMMAND_MESSAGE_TYPE,
 	MULTI_BLOCK_TEXT_MESSAGE_TYPE,
-	type CustomMessage,
 } from "../src/session/messages";
 
 function createFakeContext(): InteractiveModeContext {
@@ -41,19 +41,18 @@ function createFakeContext(): InteractiveModeContext {
 	const pendingMessagesContainer = new FakeContainer();
 	return {
 		chatContainer,
-		pendingMessagesContainer,
 		pendingTools: new Map(),
 		toolOutputExpanded: false,
 		session: {
 			extensionRunner: undefined,
 		} as InteractiveModeContext["session"],
-		ui: { requestRender: vi.fn(), terminal: { rows: 40 } } as InteractiveModeContext["ui"],
+		ui: { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as InteractiveModeContext["ui"],
 		statusLine: {} as InteractiveModeContext["statusLine"],
 		editor: {
 			addToHistory: vi.fn(),
 			setText: vi.fn(),
 			getText: () => "",
-		} as InteractiveModeContext["editor"],
+		} as unknown as InteractiveModeContext["editor"],
 		pendingImages: [],
 		pendingBashComponents: [],
 		pendingPythonComponents: [],

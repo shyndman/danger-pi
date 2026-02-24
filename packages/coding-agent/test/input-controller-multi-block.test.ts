@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
-
-import { InputController } from "../src/modes/controllers/input-controller";
 import type { FileSlashCommand } from "../src/extensibility/slash-commands";
+import { InputController } from "../src/modes/controllers/input-controller";
 import type { InteractiveModeContext } from "../src/modes/types";
 
 class StubEditor {
@@ -40,6 +39,7 @@ function createTestContext(): {
 	const promptCustomMessageMock = vi.fn(async () => {});
 	const planMock = vi.fn(async () => {});
 	const sendCustomMessageMock = vi.fn(async () => {});
+	const slashCommands: FileSlashCommand[] = [];
 
 	const ctx = {
 		ui: {} as InteractiveModeContext["ui"],
@@ -61,20 +61,25 @@ function createTestContext(): {
 			continueFromContext: continueFromContextMock,
 			promptCustomMessage: promptCustomMessageMock,
 			sendCustomMessage: sendCustomMessageMock,
-			fileCommands: [] as FileSlashCommand[],
+			setSlashCommands: vi.fn((commands: FileSlashCommand[]) => {
+				slashCommands.splice(0, slashCommands.length, ...commands);
+			}),
+			get fileCommands() {
+				return slashCommands;
+			},
 			modelRegistry: {} as InteractiveModeContext["session"]["modelRegistry"],
 			sessionId: "test-session",
-		} as InteractiveModeContext["session"],
+		} as unknown as InteractiveModeContext["session"],
 		sessionManager: {
 			getSessionName: () => "existing",
 			setSessionName: vi.fn(async () => {}),
 			getSessionDir: () => ".",
 			getEntries: () => [],
-		} as InteractiveModeContext["sessionManager"],
+		} as unknown as InteractiveModeContext["sessionManager"],
 		settings: {
 			get: () => false,
 			getModelRole: () => "default",
-		} as InteractiveModeContext["settings"],
+		} as unknown as InteractiveModeContext["settings"],
 		keybindings: {} as InteractiveModeContext["keybindings"],
 		agent: {
 			state: { messages: [{ role: "user" }] },
@@ -211,7 +216,7 @@ describe("InputController multi-block submissions", () => {
 	});
 
 	it("handles command-only stacks without prompting the agent", async () => {
-		const { ctx, editor, planMock, sendCustomMessageMock } = createTestContext();
+		const { ctx, editor, planMock } = createTestContext();
 		const onInput = vi.fn();
 		ctx.onInputCallback = onInput;
 		const controller = new InputController(ctx);
@@ -227,14 +232,14 @@ describe("InputController multi-block submissions", () => {
 
 	it("expands file commands and emits their text before final blocks", async () => {
 		const { ctx, editor, sendCustomMessageMock } = createTestContext();
-		ctx.session.fileCommands = [
+		ctx.session.setSlashCommands([
 			{
 				name: "test-multi.block",
 				description: "",
 				content: "Generated block",
 				source: "test",
 			},
-		];
+		]);
 		ctx.fileSlashCommands = new Set(["test-multi.block"]);
 		const onInput = vi.fn();
 		ctx.onInputCallback = onInput;

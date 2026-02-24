@@ -1,12 +1,12 @@
 import { expandSlashCommand, type FileSlashCommand } from "../../extensibility/slash-commands";
+import { MULTI_BLOCK_COMMAND_MESSAGE_TYPE } from "../../session/messages";
 import {
 	executeBuiltinSlashCommand,
 	isBatchableBuiltinSlashCommand,
 	isBuiltinSlashCommandName,
 } from "../../slash-commands/builtin-registry";
-import { MULTI_BLOCK_COMMAND_MESSAGE_TYPE } from "../../session/messages";
 import type { InteractiveModeContext } from "../types";
-import { splitSubmissionIntoBlocks, type SubmissionBlock } from "./submission-blocks";
+import { type SubmissionBlock, splitSubmissionIntoBlocks } from "./submission-blocks";
 
 type SkillCommandHandler = (
 	text: string,
@@ -127,8 +127,7 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 	}
 
 	const finalRenderableBlockType = getLastRenderableBlockType(blocks);
-	const continueFromContext =
-		remainingText === null && finalRenderableBlockType === "command" && hasPromptableContent;
+	const continueFromContext = remainingText === null && finalRenderableBlockType === "command" && hasPromptableContent;
 
 	return { processed: true, success: true, remainingText, continueFromContext, fallbackPromptText };
 }

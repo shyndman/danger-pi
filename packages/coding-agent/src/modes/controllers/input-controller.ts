@@ -11,11 +11,7 @@ import {
 	SKILL_PROMPT_MESSAGE_TYPE,
 	type SkillPromptDetails,
 } from "../../session/messages";
-import {
-	executeBuiltinSlashCommand,
-	isBatchableBuiltinSlashCommand,
-	isBuiltinSlashCommandName,
-} from "../../slash-commands/builtin-registry";
+import { executeBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
 import { getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setTerminalTitle } from "../../utils/title-generator";
@@ -217,11 +213,7 @@ export class InputController {
 					}
 					return;
 				}
-				if (
-					multiBlockResult.continueFromContext &&
-					hasInputImages &&
-					multiBlockResult.fallbackPromptText
-				) {
+				if (multiBlockResult.continueFromContext && hasInputImages && multiBlockResult.fallbackPromptText) {
 					historyText = originalSubmission;
 					text = multiBlockResult.fallbackPromptText;
 				} else if (!multiBlockResult.remainingText) {
