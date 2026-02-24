@@ -1,8 +1,6 @@
 .notes/
-openspec/
 node_modules/
 .npm/
-.omp/
 worktrees/
 
 # Build output
@@ -50,7 +48,6 @@ packages/ai/test/.temp-images/
 .opencode/
 .worktrees/
 compaction-results/
-changes/
 __pycache__/
 
 # Scratch files
