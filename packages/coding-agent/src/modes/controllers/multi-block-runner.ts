@@ -4,6 +4,7 @@ import {
 	isBatchableBuiltinSlashCommand,
 	isBuiltinSlashCommandName,
 } from "../../slash-commands/builtin-registry";
+import { MULTI_BLOCK_COMMAND_MESSAGE_TYPE } from "../../session/messages";
 import type { InteractiveModeContext } from "../types";
 import { splitSubmissionIntoBlocks, type SubmissionBlock } from "./submission-blocks";
 
@@ -15,7 +16,10 @@ type SkillCommandHandler = (
 interface CommandBlockExecutionResult {
 	success: boolean;
 	appendedText?: string;
+	contributesPromptContent?: boolean;
 }
+
+type TextBlockDispatcher = (text: string, options: { suppressTurn: boolean }) => Promise<void>;
 
 interface ExecuteCommandBlockOptions {
 	ctx: InteractiveModeContext;
@@ -27,15 +31,28 @@ interface ExecuteCommandBlockOptions {
 
 export type MultiBlockProcessingResult =
 	| { processed: false }
-	| { processed: true; success: boolean; remainingText: string | null };
+	| {
+			processed: true;
+			success: boolean;
+			remainingText: string | null;
+			continueFromContext: boolean;
+			fallbackPromptText: string | null;
+	  };
 
 export interface MultiBlockRunnerOptions {
 	ctx: InteractiveModeContext;
 	text: string;
 	handleSkillCommand: SkillCommandHandler;
 	handleBackgroundCommand: () => void;
+	handleTextBlock: TextBlockDispatcher;
 }
 
+/**
+ * Expands a stacked submission into per-block chat entries while ensuring downstream code still
+ * triggers exactly one agent turn. Intermediate text is rendered immediately for ordering; when
+ * the final renderable block is a command, callers can continue from the already-persisted context
+ * instead of emitting a duplicate trailing user message.
+ */
 export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions): Promise<MultiBlockProcessingResult> {
 	const { ctx, text } = options;
 	if (!text.includes("\n")) {
@@ -54,8 +71,10 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 	}
 
 	const editorSnapshot = ctx.editor.getText();
-	const textParts: string[] = [];
 	const fileCommands = Array.from(ctx.session.fileCommands ?? []);
+	let remainingText: string | null = null;
+	let hasPromptableContent = false;
+	let fallbackPromptText: string | null = null;
 
 	for (let i = 0; i < blocks.length; i += 1) {
 		const block = blocks[i];
@@ -63,24 +82,55 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 			const result = await executeCommandBlock(block.text, {
 				ctx,
 				fileCommands,
-				suppressTurn: hasFutureTextBlock(blocks, i),
+				suppressTurn: true,
 				handleSkillCommand: options.handleSkillCommand,
 				handleBackgroundCommand: options.handleBackgroundCommand,
 			});
 			if (!result.success) {
 				ctx.editor.setText(editorSnapshot);
-				return { processed: true, success: false, remainingText: null };
+				return {
+					processed: true,
+					success: false,
+					remainingText: null,
+					continueFromContext: false,
+					fallbackPromptText: null,
+				};
 			}
-			if (result.appendedText) {
-				textParts.push(result.appendedText);
+			const appended = result.appendedText?.trim();
+			if (result.contributesPromptContent) {
+				hasPromptableContent = true;
 			}
+			if (appended) {
+				fallbackPromptText = appended;
+				const shouldDispatchImmediately = hasFutureRenderableBlock(blocks, i);
+				if (shouldDispatchImmediately) {
+					await options.handleTextBlock(appended, { suppressTurn: true });
+				} else {
+					remainingText = appended;
+				}
+			}
+			continue;
+		}
+
+		const trimmed = block.text.trim();
+		if (!trimmed) {
+			continue;
+		}
+		hasPromptableContent = true;
+		fallbackPromptText = trimmed;
+		const shouldDispatchImmediately = hasFutureRenderableBlock(blocks, i);
+		if (shouldDispatchImmediately) {
+			await options.handleTextBlock(trimmed, { suppressTurn: true });
 		} else {
-			textParts.push(block.text);
+			remainingText = trimmed;
 		}
 	}
 
-	const remainingText = textParts.join("").trim();
-	return { processed: true, success: true, remainingText: remainingText.length > 0 ? remainingText : null };
+	const finalRenderableBlockType = getLastRenderableBlockType(blocks);
+	const continueFromContext =
+		remainingText === null && finalRenderableBlockType === "command" && hasPromptableContent;
+
+	return { processed: true, success: true, remainingText, continueFromContext, fallbackPromptText };
 }
 
 function parseSlashCommandName(commandText: string): string | null {
@@ -108,14 +158,30 @@ function isRecognizedSlashCommand(ctx: InteractiveModeContext, candidate: string
 	return isBuiltinSlashCommandName(commandName);
 }
 
-function hasFutureTextBlock(blocks: SubmissionBlock[], startIndex: number): boolean {
+function hasFutureRenderableBlock(blocks: SubmissionBlock[], startIndex: number): boolean {
 	for (let i = startIndex + 1; i < blocks.length; i += 1) {
 		const block = blocks[i];
+		if (block.type === "command") {
+			return true;
+		}
 		if (block.type === "text" && block.text.trim().length > 0) {
 			return true;
 		}
 	}
 	return false;
+}
+
+function getLastRenderableBlockType(blocks: SubmissionBlock[]): SubmissionBlock["type"] | null {
+	for (let i = blocks.length - 1; i >= 0; i -= 1) {
+		const block = blocks[i];
+		if (block.type === "command") {
+			return "command";
+		}
+		if (block.type === "text" && block.text.trim().length > 0) {
+			return "text";
+		}
+	}
+	return null;
 }
 
 async function executeCommandBlock(
@@ -133,7 +199,7 @@ async function executeCommandBlock(
 			addToHistory: false,
 			suppressTurn: options.suppressTurn,
 		});
-		return { success: outcome === "handled" };
+		return { success: outcome === "handled", contributesPromptContent: outcome === "handled" };
 	}
 
 	if (isBuiltinSlashCommandName(commandName)) {
@@ -148,15 +214,33 @@ async function executeCommandBlock(
 		if (!handled) {
 			options.ctx.showError(`Failed to execute "/${commandName}" command.`);
 		}
-		return { success: handled };
+		if (handled) {
+			await emitBuiltinCommandMessage(options.ctx, commandText);
+		}
+		return { success: handled, contributesPromptContent: false };
 	}
 
 	const fileCommand = options.fileCommands.find(cmd => cmd.name === commandName);
 	if (fileCommand) {
 		const expanded = expandSlashCommand(commandText, options.fileCommands);
-		return { success: true, appendedText: expanded };
+		return { success: true, appendedText: expanded, contributesPromptContent: expanded.trim().length > 0 };
 	}
 
 	options.ctx.showError(`Unsupported slash command in multi-block submission: ${commandText}`);
 	return { success: false };
+}
+
+/**
+ * Emit a lightweight custom message that records builtin slash command execution during a multi-block run.
+ */
+async function emitBuiltinCommandMessage(ctx: InteractiveModeContext, commandText: string): Promise<void> {
+	await ctx.session.sendCustomMessage(
+		{
+			customType: MULTI_BLOCK_COMMAND_MESSAGE_TYPE,
+			content: `Ran ${commandText}`,
+			display: true,
+			details: { command: commandText, kind: "builtin" },
+		},
+		{ triggerTurn: false },
+	);
 }

@@ -122,7 +122,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	autoCompactionEscapeHandler?: () => void;
 	retryEscapeHandler?: () => void;
 	unsubscribe?: () => void;
-	onInputCallback?: (input: { text: string; images?: ImageContent[] }) => void;
+	onInputCallback?: (input: { text: string; images?: ImageContent[]; continueFromContext?: boolean }) => void;
 	lastSigintTime = 0;
 	lastEscapeTime = 0;
 	shutdownRequested = false;
@@ -397,8 +397,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.session.setSlashCommands(fileCommands);
 	}
 
-	async getUserInput(): Promise<{ text: string; images?: ImageContent[] }> {
-		const { promise, resolve } = Promise.withResolvers<{ text: string; images?: ImageContent[] }>();
+	async getUserInput(): Promise<{ text: string; images?: ImageContent[]; continueFromContext?: boolean }> {
+		const { promise, resolve } = Promise.withResolvers<{
+			text: string;
+			images?: ImageContent[];
+			continueFromContext?: boolean;
+		}>();
 		this.onInputCallback = input => {
 			this.onInputCallback = undefined;
 			resolve(input);

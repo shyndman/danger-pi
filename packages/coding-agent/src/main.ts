@@ -125,9 +125,13 @@ async function runInteractiveMode(
 	}
 
 	while (true) {
-		const { text, images } = await mode.getUserInput();
+		const { text, images, continueFromContext } = await mode.getUserInput();
 		try {
-			await session.prompt(text, { images });
+			if (continueFromContext) {
+				await session.continueFromContext();
+			} else {
+				await session.prompt(text, { images });
+			}
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 			mode.showError(errorMessage);

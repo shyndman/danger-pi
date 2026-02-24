@@ -87,7 +87,7 @@ export interface InteractiveModeContext {
 	autoCompactionEscapeHandler?: () => void;
 	retryEscapeHandler?: () => void;
 	unsubscribe?: () => void;
-	onInputCallback?: (input: { text: string; images?: ImageContent[] }) => void;
+	onInputCallback?: (input: { text: string; images?: ImageContent[]; continueFromContext?: boolean }) => void;
 	lastSigintTime: number;
 	lastEscapeTime: number;
 	shutdownRequested: boolean;

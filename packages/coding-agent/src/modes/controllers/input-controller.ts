@@ -6,7 +6,11 @@ import { settings } from "../../config/settings";
 import { theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext } from "../../modes/types";
 import type { AgentSessionEvent } from "../../session/agent-session";
-import { SKILL_PROMPT_MESSAGE_TYPE, type SkillPromptDetails } from "../../session/messages";
+import {
+	MULTI_BLOCK_TEXT_MESSAGE_TYPE,
+	SKILL_PROMPT_MESSAGE_TYPE,
+	type SkillPromptDetails,
+} from "../../session/messages";
 import {
 	executeBuiltinSlashCommand,
 	isBatchableBuiltinSlashCommand,
@@ -194,20 +198,41 @@ export class InputController {
 				text,
 				handleSkillCommand: (commandText, options) => this.#handleSkillCommand(commandText, options),
 				handleBackgroundCommand: () => this.handleBackgroundCommand(),
+				handleTextBlock: (blockText, blockOptions) => this.#dispatchMultiBlockText(blockText, blockOptions),
 			});
 			if (multiBlockResult.processed) {
 				if (!multiBlockResult.success) {
 					return;
 				}
 				const originalSubmission = text;
-				if (!multiBlockResult.remainingText) {
+				const hasInputImages = Boolean(inputImages && inputImages.length > 0);
+				if (multiBlockResult.continueFromContext && !hasInputImages) {
+					this.ctx.flushPendingBashComponents();
+					this.#maybeGenerateSessionTitle(multiBlockResult.fallbackPromptText ?? originalSubmission);
+					this.ctx.editor.addToHistory(originalSubmission);
+					this.ctx.editor.setText("");
+					this.ctx.pendingImages = [];
+					if (this.ctx.onInputCallback) {
+						this.ctx.onInputCallback({ text: "", continueFromContext: true });
+					}
+					return;
+				}
+				if (
+					multiBlockResult.continueFromContext &&
+					hasInputImages &&
+					multiBlockResult.fallbackPromptText
+				) {
+					historyText = originalSubmission;
+					text = multiBlockResult.fallbackPromptText;
+				} else if (!multiBlockResult.remainingText) {
 					this.ctx.editor.addToHistory(originalSubmission);
 					this.ctx.editor.setText("");
 					this.ctx.pendingImages = [];
 					return;
+				} else {
+					historyText = originalSubmission;
+					text = multiBlockResult.remainingText;
 				}
-				historyText = originalSubmission;
-				text = multiBlockResult.remainingText;
 			}
 			if (!text) return;
 
@@ -298,19 +323,7 @@ export class InputController {
 			this.ctx.flushPendingBashComponents();
 
 			// Generate session title on first message
-			const hasUserMessages = this.ctx.agent.state.messages.some((m: AgentMessage) => m.role === "user");
-			if (!hasUserMessages && !this.ctx.sessionManager.getSessionName() && !$env.PI_NO_TITLE) {
-				const registry = this.ctx.session.modelRegistry;
-				const smolModel = this.ctx.settings.getModelRole("smol");
-				generateSessionTitle(text, registry, smolModel, this.ctx.session.sessionId)
-					.then(async title => {
-						if (title) {
-							await this.ctx.sessionManager.setSessionName(title);
-							setTerminalTitle(`π: ${title}`);
-						}
-					})
-					.catch(() => {});
-			}
+			this.#maybeGenerateSessionTitle(text);
 
 			if (this.ctx.onInputCallback) {
 				// Include any pending images from clipboard paste
@@ -320,6 +333,44 @@ export class InputController {
 			}
 			this.ctx.editor.addToHistory(historyText);
 		};
+	}
+
+	/**
+	 * Emit custom messages for intermediate text blocks during multi-block submissions so the transcript
+	 * mirrors author intent without triggering a new agent turn.
+	 */
+	async #dispatchMultiBlockText(text: string, options: { suppressTurn: boolean }): Promise<void> {
+		const trimmed = text.trim();
+		if (!trimmed) {
+			return;
+		}
+		this.ctx.editor.addToHistory(trimmed);
+		await this.ctx.session.sendCustomMessage(
+			{
+				customType: MULTI_BLOCK_TEXT_MESSAGE_TYPE,
+				content: trimmed,
+				display: true,
+				details: { suppressTurn: options.suppressTurn },
+			},
+			{ triggerTurn: false },
+		);
+	}
+
+	#maybeGenerateSessionTitle(text: string): void {
+		const hasUserMessages = this.ctx.agent.state.messages.some((m: AgentMessage) => m.role === "user");
+		if (hasUserMessages || this.ctx.sessionManager.getSessionName() || $env.PI_NO_TITLE) {
+			return;
+		}
+		const registry = this.ctx.session.modelRegistry;
+		const smolModel = this.ctx.settings.getModelRole("smol");
+		generateSessionTitle(text, registry, smolModel, this.ctx.session.sessionId)
+			.then(async title => {
+				if (title) {
+					await this.ctx.sessionManager.setSessionName(title);
+					setTerminalTitle(`π: ${title}`);
+				}
+			})
+			.catch(() => {});
 	}
 
 	async #handleSkillCommand(

@@ -2416,7 +2416,8 @@ export class AgentSession {
 			return;
 		}
 
-		this.agent.appendMessage(appMessage);
+		// Synthetic events below persist the message via Agent.emitExternalEvent, so we avoid
+		// directly mutating agent state here to prevent duplicate chat entries.
 		this.sessionManager.appendCustomMessageEntry(
 			message.customType,
 			message.content,
@@ -2465,6 +2466,15 @@ export class AgentSession {
 			streamingBehavior: options?.deliverAs,
 			images,
 		});
+	}
+
+	/**
+	 * Start a turn from the existing session context without appending a new message.
+	 * Used by multi-block submissions when all user-visible blocks have already been persisted.
+	 */
+	async continueFromContext(): Promise<void> {
+		await this.agent.continue();
+		await this.#waitForRetry();
 	}
 
 	/**
