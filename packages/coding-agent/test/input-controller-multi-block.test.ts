@@ -31,7 +31,7 @@ function createTestContext() {
 	const promptCustomMessageMock = vi.fn(async () => {});
 	const planMock = vi.fn(async () => {});
 	const sendCustomMessageMock = vi.fn(async () => {});
-	let fileCommands: ReadonlyArray<FileSlashCommand> = [];
+	const slashCommands: FileSlashCommand[] = [];
 	const startPendingSubmission = vi.fn(
 		(input: { text: string; images?: InteractiveModeContext["pendingImages"] }): SubmittedUserInput => ({
 			text: input.text,
@@ -62,11 +62,11 @@ function createTestContext() {
 			continueFromContext: continueFromContextMock,
 			promptCustomMessage: promptCustomMessageMock,
 			sendCustomMessage: sendCustomMessageMock,
+			setSlashCommands: vi.fn((commands: FileSlashCommand[]) => {
+				slashCommands.splice(0, slashCommands.length, ...commands);
+			}),
 			get fileCommands() {
-				return fileCommands;
-			},
-			setSlashCommands(commands: FileSlashCommand[]) {
-				fileCommands = commands;
+				return slashCommands;
 			},
 			modelRegistry: {} as InteractiveModeContext["session"]["modelRegistry"],
 			sessionId: "test-session",
@@ -233,7 +233,7 @@ describe("InputController multi-block submissions", () => {
 	});
 
 	it("handles command-only stacks without prompting the agent", async () => {
-		const { ctx, editor, planMock, sendCustomMessageMock } = createTestContext();
+		const { ctx, editor, planMock } = createTestContext();
 		const onInput = vi.fn();
 		ctx.onInputCallback = onInput;
 		const controller = new InputController(ctx);

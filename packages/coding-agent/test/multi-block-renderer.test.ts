@@ -46,13 +46,13 @@ function createFakeContext(): InteractiveModeContext {
 		session: {
 			extensionRunner: undefined,
 		} as InteractiveModeContext["session"],
-		ui: { requestRender: vi.fn(), terminal: { rows: 40 } } as InteractiveModeContext["ui"],
+		ui: { requestRender: vi.fn(), terminal: { rows: 40 } } as unknown as InteractiveModeContext["ui"],
 		statusLine: {} as InteractiveModeContext["statusLine"],
 		editor: {
 			addToHistory: vi.fn(),
 			setText: vi.fn(),
 			getText: () => "",
-		} as InteractiveModeContext["editor"],
+		} as unknown as InteractiveModeContext["editor"],
 		pendingImages: [],
 		pendingBashComponents: [],
 		pendingPythonComponents: [],

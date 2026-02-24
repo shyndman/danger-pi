@@ -17,6 +17,7 @@ import { theme } from "../../modes/theme/theme";
 import type { CompactionQueuedMessage, InteractiveModeContext } from "../../modes/types";
 import {
 	type CustomMessage,
+	type HookMessage,
 	MULTI_BLOCK_COMMAND_MESSAGE_TYPE,
 	MULTI_BLOCK_TEXT_MESSAGE_TYPE,
 	SKILL_PROMPT_MESSAGE_TYPE,
@@ -637,7 +638,7 @@ export class UiHelpers {
 		return text.trim();
 	}
 
-	#getCustomMessageText(message: CustomMessage): string {
+	#getCustomMessageText(message: CustomMessage | HookMessage): string {
 		if (typeof message.content === "string") {
 			return message.content;
 		}

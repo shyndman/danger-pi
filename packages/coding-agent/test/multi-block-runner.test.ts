@@ -8,14 +8,14 @@ function createContext(overrides?: Partial<InteractiveModeContext>): Interactive
 		getText: () => "snapshot",
 		setText: vi.fn(),
 		addToHistory: vi.fn(),
-	} as InteractiveModeContext["editor"];
+	} as unknown as InteractiveModeContext["editor"];
 
 	return {
 		session: {
 			isStreaming: false,
 			isCompacting: false,
 			fileCommands: [],
-		} as InteractiveModeContext["session"],
+		} as unknown as InteractiveModeContext["session"],
 		fileSlashCommands: new Set<string>(),
 		skillCommands: new Map<string, string>(),
 		editor,
@@ -33,7 +33,7 @@ describe("runMultiBlockSubmission", () => {
 		const result = await runMultiBlockSubmission({
 			ctx,
 			text: "good\n\n/skill:demo",
-			handleSkillCommand: vi.fn(async () => "handled"),
+			handleSkillCommand: vi.fn(async () => "handled" as const),
 			handleBackgroundCommand: vi.fn(),
 			handleTextBlock,
 		});
@@ -60,7 +60,7 @@ describe("runMultiBlockSubmission", () => {
 						source: "test",
 					},
 				],
-			} as InteractiveModeContext["session"],
+			} as unknown as InteractiveModeContext["session"],
 			fileSlashCommands: new Set(["foo"]),
 			skillCommands: new Map([["skill:omega", "/tmp/skill"]]),
 		});
@@ -68,7 +68,7 @@ describe("runMultiBlockSubmission", () => {
 		const result = await runMultiBlockSubmission({
 			ctx,
 			text: "/foo\n\n/skill:omega",
-			handleSkillCommand: vi.fn(async () => "handled"),
+			handleSkillCommand: vi.fn(async () => "handled" as const),
 			handleBackgroundCommand: vi.fn(),
 			handleTextBlock,
 		});

@@ -1,4 +1,4 @@
-Patches files given diff hunks. Primary tool for existing-file edits.
+Patch operations on file given diff. Primary tool for existing-file edits.
 
 <instruction>
 **Hunk Headers:**

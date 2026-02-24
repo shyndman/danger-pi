@@ -68,6 +68,11 @@ function dedupePromptSource(source: string | null | undefined, otherSources: Arr
 	return otherSources.some(otherSource => promptSourceContainsRule(otherSource, resolvedSource)) ? "" : resolvedSource;
 }
 
+/** Conditional startup debug prints (stderr) when PI_DEBUG_STARTUP is set */
+const _debugStartup = $env.PI_DEBUG_STARTUP
+	? (stage: string) => process.stderr.write(`[startup] ${stage}\n`)
+	: () => {};
+
 function firstNonEmpty(...values: (string | undefined | null)[]): string | null {
 	for (const value of values) {
 		const trimmed = value?.trim();
