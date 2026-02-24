@@ -13,6 +13,27 @@ function createInput(overrides: Partial<SubmittedUserInput> = {}): SubmittedUser
 }
 
 describe("submitInteractiveInput", () => {
+	it("continues from context when requested", async () => {
+		const mode = {
+			markPendingSubmissionStarted: vi.fn(() => true),
+			finishPendingSubmission: vi.fn(),
+			showError: vi.fn(),
+		};
+		const session = {
+			prompt: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
+		};
+		const input = createInput({ text: "", started: true, continueFromContext: true });
+
+		await submitInteractiveInput(mode, session, input);
+
+		expect(mode.markPendingSubmissionStarted).not.toHaveBeenCalled();
+		expect(session.continueFromContext).toHaveBeenCalledTimes(1);
+		expect(session.prompt).not.toHaveBeenCalled();
+		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
+		expect(mode.showError).not.toHaveBeenCalled();
+	});
+
 	it("prompts already-started continue submissions without re-checking optimistic state", async () => {
 		const mode = {
 			markPendingSubmissionStarted: vi.fn(() => false),

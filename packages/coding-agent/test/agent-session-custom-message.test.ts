@@ -71,5 +71,7 @@ describe("AgentSession custom messages", () => {
 			type: "message_end",
 			message: { role: "custom", customType: "skill-prompt" },
 		});
+		expect(session.agent.state.messages).toHaveLength(1);
+		expect(session.agent.state.messages[0]).toMatchObject({ role: "custom", customType: "skill-prompt" });
 	});
 });

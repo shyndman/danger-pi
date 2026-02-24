@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "bun:test";
-
+import type { FileSlashCommand } from "../src/extensibility/slash-commands";
 import { InputController } from "../src/modes/controllers/input-controller";
-import type { InteractiveModeContext } from "../src/modes/types";
+import type { InteractiveModeContext, SubmittedUserInput } from "../src/modes/types";
 
 class StubEditor {
 	public text = "";
@@ -27,8 +27,19 @@ function createTestContext() {
 	const showWarning = vi.fn();
 	const showStatus = vi.fn();
 	const promptMock = vi.fn(async () => {});
+	const continueFromContextMock = vi.fn(async () => {});
 	const promptCustomMessageMock = vi.fn(async () => {});
 	const planMock = vi.fn(async () => {});
+	const sendCustomMessageMock = vi.fn(async () => {});
+	let fileCommands: ReadonlyArray<FileSlashCommand> = [];
+	const startPendingSubmission = vi.fn(
+		(input: { text: string; images?: InteractiveModeContext["pendingImages"] }): SubmittedUserInput => ({
+			text: input.text,
+			images: input.images,
+			cancelled: false,
+			started: false,
+		}),
+	);
 
 	const ctx = {
 		ui: {} as InteractiveModeContext["ui"],
@@ -39,14 +50,24 @@ function createTestContext() {
 		editor,
 		editorContainer: {} as InteractiveModeContext["editorContainer"],
 		statusLine: {} as InteractiveModeContext["statusLine"],
+		fileSlashCommands: new Set<string>(),
 		session: {
 			isStreaming: false,
 			queuedMessageCount: 0,
+			messages: [],
 			abort: vi.fn(async () => {}),
 			extensionRunner: undefined,
 			isCompacting: false,
 			prompt: promptMock,
+			continueFromContext: continueFromContextMock,
 			promptCustomMessage: promptCustomMessageMock,
+			sendCustomMessage: sendCustomMessageMock,
+			get fileCommands() {
+				return fileCommands;
+			},
+			setSlashCommands(commands: FileSlashCommand[]) {
+				fileCommands = commands;
+			},
 			modelRegistry: {} as InteractiveModeContext["session"]["modelRegistry"],
 			sessionId: "test-session",
 		} as unknown as InteractiveModeContext["session"],
@@ -81,6 +102,7 @@ function createTestContext() {
 		pendingBashMessages: [],
 		pendingPythonMessages: [],
 		skillCommands: new Map<string, string>(),
+		startPendingSubmission,
 		showError,
 		showWarning,
 		showStatus,
@@ -104,7 +126,7 @@ function createTestContext() {
 		showWarningMessage: vi.fn(),
 	} as unknown as InteractiveModeContext;
 
-	return { ctx, editor, showError, promptMock, planMock };
+	return { ctx, editor, showError, promptMock, continueFromContextMock, planMock, sendCustomMessageMock };
 }
 
 describe("InputController multi-block submissions", () => {
@@ -138,7 +160,124 @@ describe("InputController multi-block submissions", () => {
 		expect(showError).not.toHaveBeenCalled();
 		expect(planMock).toHaveBeenCalledTimes(1);
 		expect(onInput).toHaveBeenCalledTimes(1);
-		expect(onInput).toHaveBeenCalledWith({ text: "Need a summary of changes", images: undefined });
+		expect(onInput).toHaveBeenCalledWith({
+			text: "Need a summary of changes",
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
 		expect(editor.history).toEqual([submission]);
+	});
+
+	it("emits text blocks before commands as custom messages", async () => {
+		const { ctx, editor, planMock, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `Intro step\n\n/plan\nNeed summary`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(planMock).toHaveBeenCalledTimes(1);
+		expect(onInput).toHaveBeenCalledWith({
+			text: "Need summary",
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
+		expect(sendCustomMessageMock).toHaveBeenCalledTimes(2);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ customType: "multi-block-text", content: "Intro step" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ customType: "multi-block-command" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(editor.history).toEqual(["Intro step", submission]);
+	});
+
+	it("preserves text-before-final-command order and triggers continue-from-context", async () => {
+		const { ctx, editor, planMock, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "good\n\n/plan";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(planMock).toHaveBeenCalledTimes(1);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ customType: "multi-block-text", content: "good" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ customType: "multi-block-command" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledWith({
+			text: "",
+			continueFromContext: true,
+			cancelled: false,
+			started: true,
+		});
+		expect(editor.history).toEqual(["good", submission]);
+	});
+
+	it("handles command-only stacks without prompting the agent", async () => {
+		const { ctx, editor, planMock, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `/plan\n\n/plan focus auth`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(planMock).toHaveBeenCalledTimes(2);
+		expect(onInput).not.toHaveBeenCalled();
+	});
+
+	it("expands file commands and emits their text before final blocks", async () => {
+		const { ctx, editor, sendCustomMessageMock } = createTestContext();
+		ctx.session.setSlashCommands([
+			{
+				name: "test-multi.block",
+				description: "",
+				content: "Generated block",
+				source: "test",
+			},
+		]);
+		ctx.fileSlashCommands = new Set(["test-multi.block"]);
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `/test-multi.block\n\nNext text`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(sendCustomMessageMock).toHaveBeenCalledTimes(1);
+		expect(sendCustomMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({ customType: "multi-block-text", content: "Generated block" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledWith({
+			text: "Next text",
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
+		expect(editor.history).toEqual(["Generated block", submission]);
 	});
 });
