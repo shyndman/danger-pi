@@ -27,6 +27,12 @@ So we need a dedicated `display` tool that keeps user-visible rendering separate
 - Add tool-level enablement in existing optional-tool style (`<tool>.enabled`) and wire it through `createTools` filtering in `packages/coding-agent/src/tools/index.ts`.
 - Add display image capability gating in settings using existing grouped-toggle naming style (`<prefix>.enableX`, as used by Exa settings).
 
+## Fork TODO
+
+- TODO: Keep this change fork-friendly by making only surgical insertions in existing upstream-owned files (`packages/coding-agent/src/tools/index.ts`, `packages/coding-agent/src/config/settings-schema.ts`, and targeted tests).
+- TODO: Place the majority of new behavior in new modules (`packages/coding-agent/src/tools/display.ts`, `packages/coding-agent/src/prompts/tools/display.md`, and display-specific tests).
+- TODO: Do not refactor shared `read`/`display` helpers in this change; treat helper consolidation as a separate follow-up once both changes are accepted.
+
 v0 request shape (for clarity):
 
 ```json
