@@ -329,6 +329,11 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 				prompt_cache_key: options?.sessionId,
 			};
 
+			if (model.id === "gpt-5.3-codex") {
+				// Temporary: GPT-5.3 Codex cannot process parallel tool calls reliably
+				params.parallel_tool_calls = false;
+			}
+
 			if (options?.maxTokens) {
 				params.max_output_tokens = options.maxTokens;
 			}

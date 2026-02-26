@@ -25,6 +25,7 @@ export interface RequestBody {
 	model: string;
 	store?: boolean;
 	stream?: boolean;
+	parallel_tool_calls?: boolean;
 	instructions?: string;
 	input?: InputItem[];
 	tools?: unknown;
