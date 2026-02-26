@@ -29,6 +29,7 @@ export interface RequestBody {
 	model: string;
 	store?: boolean;
 	stream?: boolean;
+	parallel_tool_calls?: boolean;
 	instructions?: string;
 	input?: InputItem[];
 	tools?: unknown;
@@ -81,6 +82,11 @@ export async function transformRequestBody(
 ): Promise<RequestBody> {
 	body.store = false;
 	body.stream = true;
+
+	if (model.id === "gpt-5.3-codex") {
+		// Temporary: GPT-5.3 Codex cannot process parallel tool calls reliably.
+		body.parallel_tool_calls = false;
+	}
 
 	if (body.input && Array.isArray(body.input)) {
 		body.input = filterInput(body.input);

@@ -62,6 +62,18 @@ describe("openai-codex request transformer", () => {
 		const orphaned = input.find(item => item.type === "message" && item.role === "assistant");
 		expect(orphaned?.content).toMatch(/Previous tool result/);
 	});
+
+	it("disables parallel tool calls for gpt-5.3-codex", async () => {
+		const body: RequestBody = {
+			model: "gpt-5.3-codex",
+			input: [],
+			parallel_tool_calls: true,
+		};
+
+		const transformed = await transformRequestBody(body, createCodexModel(body.model), {});
+
+		expect(transformed.parallel_tool_calls).toBe(false);
+	});
 });
 
 describe("openai-codex reasoning effort validation", () => {
