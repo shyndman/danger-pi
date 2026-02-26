@@ -455,7 +455,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		const ext = path.extname(absolutePath).toLowerCase();
 
 		// Read the file based on type
-		let content: (TextContent | ImageContent)[];
+		let content: (TextContent | ImageContent)[] = [];
 		let details: ReadToolDetails = {};
 		let sourcePath: string | undefined;
 		let truncationInfo:
