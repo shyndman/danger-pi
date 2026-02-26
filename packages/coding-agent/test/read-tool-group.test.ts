@@ -1,18 +1,38 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { ReadToolGroupComponent } from "@oh-my-pi/pi-coding-agent/modes/components/read-tool-group";
-import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
-import { formatSize } from "@oh-my-pi/pi-coding-agent/tools/truncate";
+import { initTheme, setTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import { formatBytes } from "@oh-my-pi/pi-coding-agent/tools/render-utils";
 import { ImageFormat, PhotonImage } from "@oh-my-pi/pi-natives";
 import { ImageProtocol, TERMINAL } from "@oh-my-pi/pi-tui/terminal-capabilities";
 
 const BASE64_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/5+hHgAFgwJ/l4cdOAAAAABJRU5ErkJggg==";
 
+const originalImageProtocolDescriptor = Object.getOwnPropertyDescriptor(TERMINAL, "imageProtocol");
+
+function setTerminalImageProtocol(value: ImageProtocol | null): void {
+	Object.defineProperty(TERMINAL, "imageProtocol", {
+		configurable: true,
+		enumerable: true,
+		value,
+		writable: true,
+	});
+}
+
+function restoreTerminalImageProtocol(): void {
+	if (originalImageProtocolDescriptor) {
+		Object.defineProperty(TERMINAL, "imageProtocol", originalImageProtocolDescriptor);
+		return;
+	}
+	const terminalRecord = TERMINAL as unknown as Record<string, unknown>;
+	delete terminalRecord.imageProtocol;
+}
+
 describe("ReadToolGroupComponent", () => {
-	const originalProtocol = TERMINAL.imageProtocol;
 	let base64JpegPixel = "";
 
 	beforeAll(async () => {
-		await initTheme("default");
+		await initTheme();
+		await setTheme("default");
 		const pngBytes = new Uint8Array(await Bun.file("packages/ai/test/data/red-circle.png").arrayBuffer());
 		const image = await PhotonImage.parse(pngBytes);
 		const jpegBuffer = await image.encode(ImageFormat.JPEG, 90);
@@ -20,11 +40,11 @@ describe("ReadToolGroupComponent", () => {
 	});
 
 	beforeEach(() => {
-		TERMINAL.imageProtocol = null;
+		setTerminalImageProtocol(null);
 	});
 
 	afterEach(() => {
-		TERMINAL.imageProtocol = originalProtocol;
+		restoreTerminalImageProtocol();
 	});
 
 	it("renders byte-size indicators and preview fallbacks", () => {
@@ -44,7 +64,7 @@ describe("ReadToolGroupComponent", () => {
 		);
 
 		const rendered = component.render(80).join("\n");
-		expect(rendered).toContain(`(${formatSize(byteSize)})`);
+		expect(rendered).toContain(`(${formatBytes(byteSize)})`);
 		expect(rendered).toContain("[Image: ./image.png [image/png]");
 	});
 
@@ -104,7 +124,7 @@ describe("ReadToolGroupComponent", () => {
 	});
 
 	it("falls back to image sequences when protocol is available", () => {
-		TERMINAL.imageProtocol = ImageProtocol.Kitty;
+		setTerminalImageProtocol(ImageProtocol.Kitty);
 		const component = new ReadToolGroupComponent();
 		component.updateArgs({ path: "./kitty.png" }, "kitty");
 		component.updateResult(
@@ -123,7 +143,7 @@ describe("ReadToolGroupComponent", () => {
 	});
 
 	it("converts non-PNG previews for Kitty protocol", async () => {
-		TERMINAL.imageProtocol = ImageProtocol.Kitty;
+		setTerminalImageProtocol(ImageProtocol.Kitty);
 		let renderRequests = 0;
 		const component = new ReadToolGroupComponent({ requestRender: () => renderRequests++ });
 		component.updateArgs({ path: "./photo.jpg" }, "jpeg");
