@@ -39,6 +39,8 @@ function createTestContext(): {
 	const promptCustomMessageMock = vi.fn(async () => {});
 	const planMock = vi.fn(async () => {});
 	const sendCustomMessageMock = vi.fn(async () => {});
+	const handleBashCommandMock = vi.fn(async () => {});
+	const handlePythonCommandMock = vi.fn(async () => {});
 	const slashCommands: FileSlashCommand[] = [];
 
 	const ctx = {
@@ -109,6 +111,8 @@ function createTestContext(): {
 		updateEditorBorderColor: vi.fn(),
 		flushPendingBashComponents: vi.fn(),
 		queueCompactionMessage: vi.fn(),
+		handleBashCommand: handleBashCommandMock,
+		handlePythonCommand: handlePythonCommandMock,
 		handlePlanModeCommand: planMock,
 		showTreeSelector: vi.fn(),
 		showUserMessageSelector: vi.fn(),
@@ -257,5 +261,127 @@ describe("InputController multi-block submissions", () => {
 		);
 		expect(onInput).toHaveBeenCalledWith({ text: "Next text", images: undefined });
 		expect(editor.history).toEqual(["Generated block", submission]);
+	});
+
+	it("executes mixed shortcut and text blocks in author order", async () => {
+		const { ctx, editor, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "!ls\nthis is a message\n!ls -al\nthis is another\n$print('hi')";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handleBashCommand).toHaveBeenNthCalledWith(1, "ls", false);
+		expect(ctx.handleBashCommand).toHaveBeenNthCalledWith(2, "ls -al", false);
+		expect(ctx.handlePythonCommand).toHaveBeenNthCalledWith(1, "print('hi')", false);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ customType: "multi-block-text", content: "this is a message" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ customType: "multi-block-text", content: "this is another" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledWith({ text: "", continueFromContext: true });
+		expect(editor.history).toEqual(["this is a message", "this is another", submission]);
+	});
+
+	it("handles command-only shortcut stacks without triggering an agent turn", async () => {
+		const { ctx, editor, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "!ls\n!! pwd\n$print('hi')\n$$ print('hidden')";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handleBashCommand).toHaveBeenNthCalledWith(1, "ls", false);
+		expect(ctx.handleBashCommand).toHaveBeenNthCalledWith(2, "pwd", true);
+		expect(ctx.handlePythonCommand).toHaveBeenNthCalledWith(1, "print('hi')", false);
+		expect(ctx.handlePythonCommand).toHaveBeenNthCalledWith(2, "print('hidden')", true);
+		expect(sendCustomMessageMock).not.toHaveBeenCalled();
+		expect(onInput).not.toHaveBeenCalled();
+		expect(editor.history).toEqual([submission]);
+	});
+
+	it("treats multiline empty shortcut lines as plain text", async () => {
+		const { ctx, editor } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "!\n$$\nhello";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handleBashCommand).not.toHaveBeenCalled();
+		expect(ctx.handlePythonCommand).not.toHaveBeenCalled();
+		expect(onInput).toHaveBeenCalledWith({ text: submission, images: undefined });
+	});
+
+	it("executes fenced bash shortcuts as one command block", async () => {
+		const { ctx, editor } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = '!```\necho "this\nis a test\nboo"\n```';
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handleBashCommand).toHaveBeenCalledTimes(1);
+		expect(ctx.handleBashCommand).toHaveBeenCalledWith('echo "this\nis a test\nboo"', false);
+		expect(ctx.handlePythonCommand).not.toHaveBeenCalled();
+		expect(onInput).not.toHaveBeenCalled();
+		expect(editor.history).toEqual([submission]);
+	});
+
+	it("executes fenced python shortcuts as one command block", async () => {
+		const { ctx, editor } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "$```\ntext = '''hello\nworld'''\nprint(text)\n```";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handlePythonCommand).toHaveBeenCalledTimes(1);
+		expect(ctx.handlePythonCommand).toHaveBeenCalledWith("text = '''hello\nworld'''\nprint(text)", false);
+		expect(ctx.handleBashCommand).not.toHaveBeenCalled();
+		expect(onInput).not.toHaveBeenCalled();
+		expect(editor.history).toEqual([submission]);
+	});
+
+	it("preserves order when text and fenced shortcuts are mixed", async () => {
+		const { ctx, editor, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "!```\necho hi\n```\nmessage one\n$```\nprint('hi')\n```\nmessage two";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(ctx.handleBashCommand).toHaveBeenCalledWith("echo hi", false);
+		expect(ctx.handlePythonCommand).toHaveBeenCalledWith("print('hi')", false);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ customType: "multi-block-text", content: "message one" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledWith({ text: "message two", images: undefined });
+		expect(editor.history).toEqual(["message one", submission]);
 	});
 });

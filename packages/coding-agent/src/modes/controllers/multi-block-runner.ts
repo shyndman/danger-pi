@@ -19,6 +19,8 @@ interface CommandBlockExecutionResult {
 	contributesPromptContent?: boolean;
 }
 
+type ShortcutBlockHandler = (commandOrCode: string, excludeFromContext: boolean) => Promise<boolean>;
+
 type TextBlockDispatcher = (text: string, options: { suppressTurn: boolean }) => Promise<void>;
 
 interface ExecuteCommandBlockOptions {
@@ -44,6 +46,8 @@ export interface MultiBlockRunnerOptions {
 	text: string;
 	handleSkillCommand: SkillCommandHandler;
 	handleBackgroundCommand: () => void;
+	handleBashShortcut: ShortcutBlockHandler;
+	handlePythonShortcut: ShortcutBlockHandler;
 	handleTextBlock: TextBlockDispatcher;
 }
 
@@ -62,11 +66,27 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 		return { processed: false };
 	}
 
-	const blocks = splitSubmissionIntoBlocks(text, {
+	const splitResult = splitSubmissionIntoBlocks(text, {
 		isSupportedSlashCommand: candidate => isRecognizedSlashCommand(ctx, candidate),
 	});
-	const commandCount = blocks.filter(block => block.type === "command").length;
-	if (commandCount === 0 || blocks.length === 1) {
+	if (splitResult.parseError) {
+		ctx.showError(splitResult.parseError.message);
+		return {
+			processed: true,
+			success: false,
+			remainingText: null,
+			continueFromContext: false,
+			fallbackPromptText: null,
+		};
+	}
+
+	const blocks = splitResult.blocks;
+	const executableBlockCount = blocks.filter(block => block.type !== "text").length;
+	const isSingleFencedShortcut =
+		blocks.length === 1 &&
+		(blocks[0]?.type === "bash-shortcut" || blocks[0]?.type === "python-shortcut") &&
+		blocks[0].fenced === true;
+	if (executableBlockCount === 0 || (blocks.length === 1 && !isSingleFencedShortcut)) {
 		return { processed: false };
 	}
 
@@ -112,6 +132,48 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 			continue;
 		}
 
+		if (block.type === "bash-shortcut") {
+			const result = await executeShortcutBlock(block.text, {
+				ctx,
+				handleShortcut: options.handleBashShortcut,
+				prefix: "!",
+				excludedPrefix: "!!",
+				description: "bash",
+			});
+			if (!result.success) {
+				ctx.editor.setText(editorSnapshot);
+				return {
+					processed: true,
+					success: false,
+					remainingText: null,
+					continueFromContext: false,
+					fallbackPromptText: null,
+				};
+			}
+			continue;
+		}
+
+		if (block.type === "python-shortcut") {
+			const result = await executeShortcutBlock(block.text, {
+				ctx,
+				handleShortcut: options.handlePythonShortcut,
+				prefix: "$",
+				excludedPrefix: "$$",
+				description: "python",
+			});
+			if (!result.success) {
+				ctx.editor.setText(editorSnapshot);
+				return {
+					processed: true,
+					success: false,
+					remainingText: null,
+					continueFromContext: false,
+					fallbackPromptText: null,
+				};
+			}
+			continue;
+		}
+
 		const trimmed = block.text.trim();
 		if (!trimmed) {
 			continue;
@@ -126,8 +188,8 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 		}
 	}
 
-	const finalRenderableBlockType = getLastRenderableBlockType(blocks);
-	const continueFromContext = remainingText === null && finalRenderableBlockType === "command" && hasPromptableContent;
+	const finalRenderableBlockKind = getLastRenderableBlockKind(blocks);
+	const continueFromContext = remainingText === null && finalRenderableBlockKind === "command" && hasPromptableContent;
 
 	return { processed: true, success: true, remainingText, continueFromContext, fallbackPromptText };
 }
@@ -160,7 +222,7 @@ function isRecognizedSlashCommand(ctx: InteractiveModeContext, candidate: string
 function hasFutureRenderableBlock(blocks: SubmissionBlock[], startIndex: number): boolean {
 	for (let i = startIndex + 1; i < blocks.length; i += 1) {
 		const block = blocks[i];
-		if (block.type === "command") {
+		if (block.type === "command" || block.type === "bash-shortcut" || block.type === "python-shortcut") {
 			return true;
 		}
 		if (block.type === "text" && block.text.trim().length > 0) {
@@ -170,10 +232,10 @@ function hasFutureRenderableBlock(blocks: SubmissionBlock[], startIndex: number)
 	return false;
 }
 
-function getLastRenderableBlockType(blocks: SubmissionBlock[]): SubmissionBlock["type"] | null {
+function getLastRenderableBlockKind(blocks: SubmissionBlock[]): "command" | "text" | null {
 	for (let i = blocks.length - 1; i >= 0; i -= 1) {
 		const block = blocks[i];
-		if (block.type === "command") {
+		if (block.type === "command" || block.type === "bash-shortcut" || block.type === "python-shortcut") {
 			return "command";
 		}
 		if (block.type === "text" && block.text.trim().length > 0) {
@@ -181,6 +243,32 @@ function getLastRenderableBlockType(blocks: SubmissionBlock[]): SubmissionBlock[
 		}
 	}
 	return null;
+}
+
+interface ExecuteShortcutBlockOptions {
+	ctx: InteractiveModeContext;
+	handleShortcut: ShortcutBlockHandler;
+	prefix: string;
+	excludedPrefix: string;
+	description: "bash" | "python";
+}
+
+async function executeShortcutBlock(
+	shortcutText: string,
+	options: ExecuteShortcutBlockOptions,
+): Promise<CommandBlockExecutionResult> {
+	const isExcluded = shortcutText.startsWith(options.excludedPrefix);
+	const payload = isExcluded
+		? shortcutText.slice(options.excludedPrefix.length).trim()
+		: shortcutText.slice(options.prefix.length).trim();
+
+	if (!payload) {
+		options.ctx.showError(`Unsupported ${options.description} shortcut in multi-block submission: ${shortcutText}`);
+		return { success: false };
+	}
+
+	const handled = await options.handleShortcut(payload, isExcluded);
+	return { success: handled, contributesPromptContent: false };
 }
 
 async function executeCommandBlock(

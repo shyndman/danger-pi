@@ -16,6 +16,7 @@ import { getEditorCommand, openInEditor } from "../../utils/external-editor";
 import { resizeImage } from "../../utils/image-resize";
 import { generateSessionTitle, setTerminalTitle } from "../../utils/title-generator";
 import { runMultiBlockSubmission } from "./multi-block-runner";
+import { executeBashShortcut, executePythonShortcut } from "./shortcut-command-executor";
 
 interface Expandable {
 	setExpanded(expanded: boolean): void;
@@ -194,6 +195,10 @@ export class InputController {
 				text,
 				handleSkillCommand: (commandText, options) => this.#handleSkillCommand(commandText, options),
 				handleBackgroundCommand: () => this.handleBackgroundCommand(),
+				handleBashShortcut: (command, excludeFromContext) =>
+					executeBashShortcut(this.ctx, command, excludeFromContext),
+				handlePythonShortcut: (code, excludeFromContext) =>
+					executePythonShortcut(this.ctx, code, excludeFromContext),
 				handleTextBlock: (blockText, blockOptions) => this.#dispatchMultiBlockText(blockText, blockOptions),
 			});
 			if (multiBlockResult.processed) {
@@ -249,37 +254,27 @@ export class InputController {
 			}
 
 			// Handle bash command (! for normal, !! for excluded from context)
-			if (text.startsWith("!")) {
+			if (!text.includes("\n") && text.startsWith("!")) {
 				const isExcluded = text.startsWith("!!");
 				const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
 				if (command) {
-					if (this.ctx.session.isBashRunning) {
-						this.ctx.showWarning("A bash command is already running. Press Esc to cancel it first.");
+					const handled = await executeBashShortcut(this.ctx, command, isExcluded, { historyEntry: text });
+					if (!handled) {
 						this.ctx.editor.setText(text);
-						return;
 					}
-					this.ctx.editor.addToHistory(text);
-					await this.ctx.handleBashCommand(command, isExcluded);
-					this.ctx.isBashMode = false;
-					this.ctx.updateEditorBorderColor();
 					return;
 				}
 			}
 
 			// Handle python command ($ for normal, $$ for excluded from context)
-			if (text.startsWith("$")) {
+			if (!text.includes("\n") && text.startsWith("$")) {
 				const isExcluded = text.startsWith("$$");
 				const code = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
 				if (code) {
-					if (this.ctx.session.isPythonRunning) {
-						this.ctx.showWarning("A Python execution is already running. Press Esc to cancel it first.");
+					const handled = await executePythonShortcut(this.ctx, code, isExcluded, { historyEntry: text });
+					if (!handled) {
 						this.ctx.editor.setText(text);
-						return;
 					}
-					this.ctx.editor.addToHistory(text);
-					await this.ctx.handlePythonCommand(code, isExcluded);
-					this.ctx.isPythonMode = false;
-					this.ctx.updateEditorBorderColor();
 					return;
 				}
 			}
