@@ -1,3 +1,9 @@
+## 0. Fork-Safe Implementation Guardrails
+
+- [ ] 0.1 TODO: Keep edits in existing upstream-owned files surgical and minimal (`packages/coding-agent/src/tools/index.ts`, `packages/coding-agent/src/config/settings-schema.ts`, and targeted existing tests only).
+- [ ] 0.2 TODO: Keep the majority of new code in new display-specific modules (`packages/coding-agent/src/tools/display.ts`, `packages/coding-agent/src/prompts/tools/display.md`, and `packages/coding-agent/test/tools/display.test.ts`).
+- [ ] 0.3 TODO: Do not extract or refactor shared runtime helpers between `read` and `display` in this change; capture consolidation work as a separate follow-up change.
+
 ## 1. Create Tool Skeleton and Prompt
 
 - [ ] 1.1 Create `packages/coding-agent/src/prompts/tools/display.md` with image-only v0 instructions and examples.
