@@ -62,7 +62,20 @@ describe("createTools", () => {
 		expect(names).toContain("todo_write");
 		expect(names).toContain("fetch");
 		expect(names).toContain("web_search");
+		expect(names).toContain("display");
 		expect(names).toContain("exit_plan_mode");
+	});
+
+	it("excludes display tool when disabled in settings", async () => {
+		const session = createTestSession({
+			settings: createSettingsWithOverrides({
+				"display.enabled": false,
+			}),
+		});
+		const tools = await createTools(session);
+		const names = tools.map(t => t.name);
+
+		expect(names).not.toContain("display");
 	});
 
 	it("includes bash and python when python mode is both", async () => {

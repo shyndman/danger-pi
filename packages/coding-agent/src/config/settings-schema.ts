@@ -241,7 +241,12 @@ export const SETTINGS_SCHEMA = {
 		type: "enum",
 		values: ["unicode", "nerd", "ascii"] as const,
 		default: "unicode",
-		ui: { tab: "appearance", label: "Symbol Preset", description: "Icon/symbol style", submenu: true },
+		ui: {
+			tab: "appearance",
+			label: "Symbol Preset",
+			description: "Icon/symbol style",
+			submenu: true,
+		},
 	},
 
 	colorBlindMode: {
@@ -319,11 +324,20 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
-	"statusLine.leftSegments": { type: "array", default: [] as StatusLineSegmentId[] },
+	"statusLine.leftSegments": {
+		type: "array",
+		default: [] as StatusLineSegmentId[],
+	},
 
-	"statusLine.rightSegments": { type: "array", default: [] as StatusLineSegmentId[] },
+	"statusLine.rightSegments": {
+		type: "array",
+		default: [] as StatusLineSegmentId[],
+	},
 
-	"statusLine.segmentOptions": { type: "record", default: {} as Record<string, unknown> },
+	"statusLine.segmentOptions": {
+		type: "record",
+		default: {} as Record<string, unknown>,
+	},
 
 	// Images and terminal
 	"terminal.showImages": {
@@ -350,7 +364,11 @@ export const SETTINGS_SCHEMA = {
 	"images.blockImages": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "appearance", label: "Block Images", description: "Prevent images from being sent to LLM providers" },
+		ui: {
+			tab: "appearance",
+			label: "Block Images",
+			description: "Prevent images from being sent to LLM providers",
+		},
 	},
 
 	"tui.maxInlineImageColumns": {
@@ -372,6 +390,26 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"display.enabled": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "tools",
+			label: "Enable Display",
+			description: "Enable the display tool for user-facing output",
+		},
+	},
+
+	"display.enableImage": {
+		type: "boolean",
+		default: true,
+		ui: {
+			tab: "tools",
+			label: "Display images",
+			description: "Allow the display tool to render image resources",
+		},
+	},
+
 	"display.showTokenUsage": {
 		type: "boolean",
 		default: false,
@@ -385,7 +423,11 @@ export const SETTINGS_SCHEMA = {
 	showHardwareCursor: {
 		type: "boolean",
 		default: true, // will be computed based on platform if undefined
-		ui: { tab: "appearance", label: "Show Hardware Cursor", description: "Show terminal cursor for IME support" },
+		ui: {
+			tab: "appearance",
+			label: "Show Hardware Cursor",
+			description: "Show terminal cursor for IME support",
+		},
 	},
 
 	clearOnShrink: {
@@ -418,7 +460,11 @@ export const SETTINGS_SCHEMA = {
 	hideThinkingBlock: {
 		type: "boolean",
 		default: false,
-		ui: { tab: "model", label: "Hide Thinking Blocks", description: "Hide thinking blocks in assistant responses" },
+		ui: {
+			tab: "model",
+			label: "Hide Thinking Blocks",
+			description: "Hide thinking blocks in assistant responses",
+		},
 	},
 
 	repeatToolDescriptions: {
@@ -621,7 +667,11 @@ export const SETTINGS_SCHEMA = {
 	collapseChangelog: {
 		type: "boolean",
 		default: false,
-		ui: { tab: "interaction", label: "Collapse Changelog", description: "Show condensed changelog after updates" },
+		ui: {
+			tab: "interaction",
+			label: "Collapse Changelog",
+			description: "Show condensed changelog after updates",
+		},
 	},
 
 	// Notifications
@@ -629,7 +679,11 @@ export const SETTINGS_SCHEMA = {
 		type: "enum",
 		values: ["on", "off"] as const,
 		default: "on",
-		ui: { tab: "interaction", label: "Completion Notification", description: "Notify when the agent completes" },
+		ui: {
+			tab: "interaction",
+			label: "Completion Notification",
+			description: "Notify when the agent completes",
+		},
 	},
 
 	"ask.timeout": {
@@ -647,14 +701,22 @@ export const SETTINGS_SCHEMA = {
 		type: "enum",
 		values: ["on", "off"] as const,
 		default: "on",
-		ui: { tab: "interaction", label: "Ask Notification", description: "Notify when ask tool is waiting for input" },
+		ui: {
+			tab: "interaction",
+			label: "Ask Notification",
+			description: "Notify when ask tool is waiting for input",
+		},
 	},
 
 	// Speech-to-text
 	"stt.enabled": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "interaction", label: "Speech-to-Text", description: "Enable speech-to-text input via microphone" },
+		ui: {
+			tab: "interaction",
+			label: "Speech-to-Text",
+			description: "Enable speech-to-text input via microphone",
+		},
 	},
 
 	"stt.language": {
@@ -771,7 +833,11 @@ export const SETTINGS_SCHEMA = {
 	"branchSummary.enabled": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "context", label: "Branch Summaries", description: "Prompt to summarize when leaving a branch" },
+		ui: {
+			tab: "context",
+			label: "Branch Summaries",
+			description: "Prompt to summarize when leaving a branch",
+		},
 	},
 
 	"branchSummary.reserveTokens": { type: "number", default: 16384 },
@@ -963,7 +1029,11 @@ export const SETTINGS_SCHEMA = {
 	"lsp.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "editing", label: "LSP", description: "Enable the lsp tool for language server protocol" },
+		ui: {
+			tab: "editing",
+			label: "LSP",
+			description: "Enable the lsp tool for language server protocol",
+		},
 	},
 
 	"lsp.formatOnWrite": {
@@ -1000,7 +1070,11 @@ export const SETTINGS_SCHEMA = {
 	"bashInterceptor.enabled": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "editing", label: "Bash Interceptor", description: "Block shell commands that have dedicated tools" },
+		ui: {
+			tab: "editing",
+			label: "Bash Interceptor",
+			description: "Block shell commands that have dedicated tools",
+		},
 	},
 	"bashInterceptor.patterns": { type: "array", default: DEFAULT_BASH_INTERCEPTOR_RULES },
 
@@ -1009,7 +1083,11 @@ export const SETTINGS_SCHEMA = {
 		type: "enum",
 		values: ["ipy-only", "bash-only", "both"] as const,
 		default: "both",
-		ui: { tab: "editing", label: "Python Tool Mode", description: "How Python code is executed" },
+		ui: {
+			tab: "editing",
+			label: "Python Tool Mode",
+			description: "How Python code is executed",
+		},
 	},
 
 	"python.kernelMode": {
@@ -1041,13 +1119,21 @@ export const SETTINGS_SCHEMA = {
 	"todo.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Todos", description: "Enable the todo_write tool for task tracking" },
+		ui: {
+			tab: "tools",
+			label: "Todos",
+			description: "Enable the todo_write tool for task tracking",
+		},
 	},
 
 	"todo.reminders": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Todo Reminders", description: "Remind agent to complete todos before stopping" },
+		ui: {
+			tab: "tools",
+			label: "Todo Reminders",
+			description: "Remind agent to complete todos before stopping",
+		},
 	},
 
 	"todo.reminders.max": {
@@ -1075,13 +1161,21 @@ export const SETTINGS_SCHEMA = {
 	"find.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Find", description: "Enable the find tool for file searching" },
+		ui: {
+			tab: "tools",
+			label: "Find",
+			description: "Enable the find tool for file searching",
+		},
 	},
 
 	"grep.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Grep", description: "Enable the grep tool for content searching" },
+		ui: {
+			tab: "tools",
+			label: "Grep",
+			description: "Enable the grep tool for content searching",
+		},
 	},
 
 	"grep.contextBefore": {
@@ -1130,7 +1224,11 @@ export const SETTINGS_SCHEMA = {
 	"notebook.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Notebook", description: "Enable the notebook tool for notebook editing" },
+		ui: {
+			tab: "tools",
+			label: "Notebook",
+			description: "Enable the notebook tool for notebook editing",
+		},
 	},
 
 	"renderMermaid.enabled": {
@@ -1177,13 +1275,21 @@ export const SETTINGS_SCHEMA = {
 	"fetch.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Fetch", description: "Enable the fetch tool for URL fetching" },
+		ui: {
+			tab: "tools",
+			label: "Fetch",
+			description: "Enable the fetch tool for URL fetching",
+		},
 	},
 
 	"web_search.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "Web Search", description: "Enable the web_search tool for web searching" },
+		ui: {
+			tab: "tools",
+			label: "Web Search",
+			description: "Enable the web_search tool for web searching",
+		},
 	},
 
 	"browser.enabled": {
@@ -1264,7 +1370,11 @@ export const SETTINGS_SCHEMA = {
 	"mcp.enableProjectConfig": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tools", label: "MCP Project Config", description: "Load .mcp.json/mcp.json from project root" },
+		ui: {
+			tab: "tools",
+			label: "MCP Project Config",
+			description: "Load .mcp.json/mcp.json from project root",
+		},
 	},
 
 	"mcp.discoveryMode": {
@@ -1408,7 +1518,11 @@ export const SETTINGS_SCHEMA = {
 	"skills.enableSkillCommands": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tasks", label: "Skill Commands", description: "Register skills as /skill:name commands" },
+		ui: {
+			tab: "tasks",
+			label: "Skill Commands",
+			description: "Register skills as /skill:name commands",
+		},
 	},
 
 	"skills.enableCodexUser": { type: "boolean", default: true },
@@ -1431,13 +1545,21 @@ export const SETTINGS_SCHEMA = {
 	"commands.enableClaudeUser": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tasks", label: "Claude User Commands", description: "Load commands from ~/.claude/commands/" },
+		ui: {
+			tab: "tasks",
+			label: "Claude User Commands",
+			description: "Load commands from ~/.claude/commands/",
+		},
 	},
 
 	"commands.enableClaudeProject": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "tasks", label: "Claude Project Commands", description: "Load commands from .claude/commands/" },
+		ui: {
+			tab: "tasks",
+			label: "Claude Project Commands",
+			description: "Load commands from .claude/commands/",
+		},
 	},
 
 	// ────────────────────────────────────────────────────────────────────────
@@ -1448,7 +1570,11 @@ export const SETTINGS_SCHEMA = {
 	"secrets.enabled": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "providers", label: "Hide Secrets", description: "Obfuscate secrets before sending to AI providers" },
+		ui: {
+			tab: "providers",
+			label: "Hide Secrets",
+			description: "Obfuscate secrets before sending to AI providers",
+		},
 	},
 
 	// Provider selection
@@ -1541,25 +1667,41 @@ export const SETTINGS_SCHEMA = {
 	"exa.enabled": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "providers", label: "Exa", description: "Master toggle for all Exa search tools" },
+		ui: {
+			tab: "providers",
+			label: "Exa",
+			description: "Master toggle for all Exa search tools",
+		},
 	},
 
 	"exa.enableSearch": {
 		type: "boolean",
 		default: true,
-		ui: { tab: "providers", label: "Exa Search", description: "Basic search, deep search, code search, crawl" },
+		ui: {
+			tab: "providers",
+			label: "Exa Search",
+			description: "Basic search, deep search, code search, crawl",
+		},
 	},
 
 	"exa.enableResearcher": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "providers", label: "Exa Researcher", description: "AI-powered deep research tasks" },
+		ui: {
+			tab: "providers",
+			label: "Exa Researcher",
+			description: "AI-powered deep research tasks",
+		},
 	},
 
 	"exa.enableWebsets": {
 		type: "boolean",
 		default: false,
-		ui: { tab: "providers", label: "Exa Websets", description: "Webset management and enrichment tools" },
+		ui: {
+			tab: "providers",
+			label: "Exa Websets",
+			description: "Webset management and enrichment tools",
+		},
 	},
 
 	"commit.mapReduceEnabled": { type: "boolean", default: true },
@@ -1595,7 +1737,9 @@ type Schema = typeof SETTINGS_SCHEMA;
 export type SettingPath = keyof Schema;
 
 /** Infer the value type for a setting path */
-export type SettingValue<P extends SettingPath> = Schema[P] extends { type: "boolean" }
+export type SettingValue<P extends SettingPath> = Schema[P] extends {
+	type: "boolean";
+}
 	? boolean
 	: Schema[P] extends { type: "string" }
 		? string | undefined
@@ -1674,6 +1818,12 @@ export interface CompactionSettings {
 	autoContinue: boolean;
 	remoteEnabled: boolean;
 	remoteEndpoint: string | undefined;
+}
+
+export interface DisplaySettings {
+	tabWidth: number;
+	enabled: boolean;
+	enableImage: boolean;
 }
 
 export interface ContextPromotionSettings {
@@ -1786,6 +1936,7 @@ export interface BashInterceptorRule {
 
 /** Map group prefix -> typed settings interface */
 export interface GroupTypeMap {
+	display: DisplaySettings;
 	compaction: CompactionSettings;
 	contextPromotion: ContextPromotionSettings;
 	retry: RetrySettings;
