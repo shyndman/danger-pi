@@ -416,6 +416,16 @@ export const SETTINGS_SCHEMA = {
 		default: true,
 		ui: { tab: "tools", label: "Enable Todos", description: "Enable the todo_write tool for task tracking" },
 	},
+	"display.enabled": {
+		type: "boolean",
+		default: true,
+		ui: { tab: "tools", label: "Enable Display", description: "Enable the display tool for user-facing output" },
+	},
+	"display.enableImage": {
+		type: "boolean",
+		default: true,
+		ui: { tab: "tools", label: "Display images", description: "Allow the display tool to render image resources" },
+	},
 	"find.enabled": {
 		type: "boolean",
 		default: true,
@@ -1229,6 +1239,12 @@ export interface CompactionSettings {
 	remoteEndpoint: string | undefined;
 }
 
+export interface DisplaySettings {
+	tabWidth: number;
+	enabled: boolean;
+	enableImage: boolean;
+}
+
 export interface ContextPromotionSettings {
 	enabled: boolean;
 }
@@ -1339,6 +1355,7 @@ export interface BashInterceptorRule {
 
 /** Map group prefix -> typed settings interface */
 export interface GroupTypeMap {
+	display: DisplaySettings;
 	compaction: CompactionSettings;
 	contextPromotion: ContextPromotionSettings;
 	retry: RetrySettings;

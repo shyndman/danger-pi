@@ -23,6 +23,7 @@ import { BrowserTool } from "./browser";
 import { CalculatorTool } from "./calculator";
 import { CancelJobTool } from "./cancel-job";
 import { type CheckpointState, CheckpointTool, RewindTool } from "./checkpoint";
+import { DisplayTool } from "./display";
 import { ExitPlanModeTool } from "./exit-plan-mode";
 import { FetchTool } from "./fetch";
 import { FindTool } from "./find";
@@ -48,6 +49,7 @@ export * from "../patch";
 export * from "../session/streaming-output";
 export * from "../task";
 export * from "../web/search";
+
 export * from "./ask";
 export * from "./ast-edit";
 export * from "./ast-grep";
@@ -57,6 +59,7 @@ export * from "./browser";
 export * from "./calculator";
 export * from "./cancel-job";
 export * from "./checkpoint";
+export * from "./display";
 export * from "./exit-plan-mode";
 export * from "./fetch";
 export * from "./find";
@@ -165,6 +168,7 @@ export const BUILTIN_TOOLS: Record<string, ToolFactory> = {
 	calc: s => new CalculatorTool(s),
 	ssh: loadSshTool,
 	edit: s => new EditTool(s),
+	display: s => new DisplayTool(s),
 	find: s => new FindTool(s),
 	grep: s => new GrepTool(s),
 	lsp: LspTool.createIf,
@@ -300,7 +304,10 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 			requestedTools.push("ast_edit");
 		}
 	}
-	const allTools: Record<string, ToolFactory> = { ...BUILTIN_TOOLS, ...HIDDEN_TOOLS };
+	const allTools: Record<string, ToolFactory> = {
+		...BUILTIN_TOOLS,
+		...HIDDEN_TOOLS,
+	};
 	const isToolAllowed = (name: string) => {
 		if (name === "lsp") return enableLsp;
 		if (name === "bash") return allowBash;
@@ -318,6 +325,8 @@ export async function createTools(session: ToolSession, toolNames?: string[]): P
 		if (name === "calc") return session.settings.get("calc.enabled");
 		if (name === "browser") return session.settings.get("browser.enabled");
 		if (name === "checkpoint" || name === "rewind") return session.settings.get("checkpoint.enabled");
+		if (name === "display") return session.settings.get("display.enabled");
+
 		if (name === "task") {
 			const maxDepth = session.settings.get("task.maxRecursionDepth") ?? 2;
 			const currentDepth = session.taskDepth ?? 0;
