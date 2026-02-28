@@ -2474,7 +2474,7 @@ export class AgentSession {
 	 */
 	async continueFromContext(): Promise<void> {
 		await this.agent.continue();
-		await this.#waitForRetry();
+		await this.#waitForPostPromptRecovery();
 	}
 
 	/**
