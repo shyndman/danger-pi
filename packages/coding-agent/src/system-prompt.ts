@@ -8,7 +8,7 @@ import * as path from "node:path";
 import { $env, getGpuCachePath, getProjectDir, hasFsCode, isEnoent, logger } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
 import { contextFileCapability } from "./capability/context-file";
-import { systemPromptCapability } from "./capability/system-prompt";
+import { systemPromptCapability } from "./capability/alt-system-prompt";
 import { renderPromptTemplate } from "./config/prompt-templates";
 import type { SkillsSettings } from "./config/settings";
 import { type ContextFile, loadCapability, type SystemPrompt as SystemPromptFile } from "./discovery";
