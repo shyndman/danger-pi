@@ -2,6 +2,10 @@
 
 This fork is optimized for rapid local iteration, but `.omp` command/skill edits are not automatically reflected during an active session. In current code, file slash commands are refreshed at startup and on `/move` only (`InteractiveMode.init` and `handleMoveCommand`), while `/skill:<name>` availability is built from startup `session.skills`.
 
+> [!REVIEW]
+> pppp
+
+
 Today, all three of these workflows are unreliable mid-session:
 - Add a new command markdown file in `<cwd>/.omp/commands` and use it immediately.
 - Add or rename a skill in `<cwd>/.omp/skills` (or `~/.omp/agent/skills`) and have `/skill:<name>` update immediately.
@@ -34,6 +38,12 @@ The change is needed now because this repo is actively experimenting with local 
 5. Add top-level `/reload` for manual recovery.
    - `/reload` retries watcher setup and reruns command/skill refresh.
    - `/reload` also invokes existing MCP reload behavior (equivalent outcome to `/mcp reload`).
+
+> [!REVIEW]
+> for "manual recovery?"
+> 
+> reload is for forcing a reload of all the commands and skills. i don't know what "manual recovery" is, but it doesn't sound like what i want
+
 
 6. Add persistent watcher error visibility.
    - Watcher setup/runtime failures (including inotify limits) stay visible until a successful rebind clears them.

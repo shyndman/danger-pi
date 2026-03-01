@@ -10,6 +10,10 @@
 - [ ] 2.1 Add builtin `/reload` command entry and route it through existing builtin slash command execution flow
 - [ ] 2.2 Implement `/reload` behavior to run watcher rebind retry + command/skill refresh + MCP reload
 - [ ] 2.3 Add new setting with enum values `omp` and `none` and expose it in settings UI
+
+> [!REVIEW]
+> I'm just going through these tasks, and we need way more validation immediately alongside each task that requires it
+
 - [ ] 2.4 Ensure `omp` mode watches only native roots (`<cwd>/.omp`, `~/.omp/agent`) and ignores non-native source roots
 
 ## 3. Watcher Behavior and Error Visibility

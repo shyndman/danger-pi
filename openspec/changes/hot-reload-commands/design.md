@@ -41,6 +41,10 @@ Verified integration points already exist and should be reused:
    - Run both through one shared orchestration function used by watchers and `/reload`.
    - Alternative rejected: duplicate refresh logic for each trigger.
 
+> [!REVIEW]
+> Be sure to comment WHY you're doing things this way alongside the code. It's important that the agents in the future understand the pattern of trying to stay out of upstream's way.
+
+
 4. **Watch parent roots and child content roots together.**
    - Parent root watch is required for mid-session `<cwd>/.omp` creation/removal.
    - Child watches cover `commands/` and `skills/` updates.
