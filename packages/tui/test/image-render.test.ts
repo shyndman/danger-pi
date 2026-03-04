@@ -105,11 +105,12 @@ describe("terminal image rendering", () => {
 		);
 
 		const lines = image.render(20);
+		const output = lines.join("");
 
-		expect(lines).toHaveLength(2);
-		expect(lines[1]).toContain("\x1b[1A");
-		expect(lines[1]).toContain("c=2");
-		expect(lines[1]).toContain("r=2");
+		expect(lines.length).toBeGreaterThan(0);
+		expect(output).toContain("\x1b_G");
+		expect(output).toContain("c=2");
+		expect(output).toContain("r=2");
 	});
 });
 

@@ -7,6 +7,15 @@ import {
 } from "../terminal-capabilities";
 import type { Component } from "../tui";
 
+/**
+ * <intent>
+ * For Kitty graphics rendering, this component intentionally delegates cursor
+ * advancement to Kitty's own placement behavior. Keep manual cursor movement
+ * escape sequences out of this file so TUI and terminal don't fight over
+ * cursor state.
+ * </intent>
+ */
+
 export interface ImageTheme {
 	fallbackColor: (str: string) => string;
 }
@@ -63,16 +72,8 @@ export class Image implements Component {
 			});
 
 			if (result) {
-				// Return `rows` lines so TUI accounts for image height
-				// First (rows-1) lines are empty (TUI clears them)
-				// Last line: move cursor back up, then output image sequence
-				lines = [];
-				for (let i = 0; i < result.rows - 1; i++) {
-					lines.push("");
-				}
-				// Move cursor up to first row, then output image
-				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				lines.push(moveUp + result.sequence);
+				// Emit only the image sequence and rely on terminal placement cursor policy.
+				lines = [result.sequence];
 			} else {
 				const fallback = imageFallback(this.#mimeType, this.#dimensions, this.#options.filename);
 				lines = [this.#theme.fallbackColor(fallback)];
