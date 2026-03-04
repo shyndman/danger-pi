@@ -1,0 +1,10 @@
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "lint-staged"
+name = "lint-staged"
+entry = "bunx lint-staged"
+language = "system"
+pass_filenames = false
+stages = ["pre-commit"]
