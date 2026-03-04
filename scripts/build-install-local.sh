@@ -52,20 +52,8 @@ install_file_atomic() {
 	mv -f "$temp_path" "$destination_path"
 }
 
-native_addons_present() {
-	for candidate in "${NATIVE_CANDIDATES[@]}"; do
-		if [ -f "$candidate" ]; then
-			return 0
-		fi
-	done
-	return 1
-}
-
 ensure_native_addons() {
-	if native_addons_present; then
-		return 0
-	fi
-	echo "Native addon artifacts missing; building via packages/natives"
+	echo "Building native addon artifacts via packages/natives"
 	(
 		cd "$REPO_ROOT"
 		bun --cwd=packages/natives run build:native
