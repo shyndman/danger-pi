@@ -19,6 +19,7 @@ import type {
 	ExtensionWidgetOptions,
 } from "../extensibility/extensions";
 import type { CompactOptions } from "../extensibility/extensions/types";
+import { loadSkills, type Skill } from "../extensibility/skills";
 import { BUILTIN_SLASH_COMMANDS, loadSlashCommands } from "../extensibility/slash-commands";
 import { resolveLocalUrlToPath } from "../internal-urls";
 import { renameApprovedPlanFile } from "../plan-mode/approved-plan";
@@ -50,6 +51,7 @@ import { MCPCommandController } from "./controllers/mcp-command-controller";
 import { SelectorController } from "./controllers/selector-controller";
 import { SSHCommandController } from "./controllers/ssh-command-controller";
 import { OAuthManualInputManager } from "./oauth-manual-input";
+import { OmpLiveReloadController, type OmpLiveReloadMode } from "./omp-live-reload";
 import { setMermaidRenderCallback } from "./theme/mermaid-cache";
 import type { Theme } from "./theme/theme";
 import {
@@ -67,6 +69,7 @@ const EDITOR_MAX_HEIGHT_MIN = 6;
 const EDITOR_MAX_HEIGHT_MAX = 18;
 const EDITOR_RESERVED_ROWS = 12;
 const EDITOR_FALLBACK_ROWS = 24;
+const OMP_LIVE_RELOAD_STATUS_KEY = "omp-live-reload";
 
 /** Options for creating an InteractiveMode instance (for future API use) */
 export interface InteractiveModeOptions {
@@ -146,7 +149,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	skillCommands: Map<string, string> = new Map();
 	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
 
-	#pendingSlashCommands: SlashCommand[] = [];
+	#baseSlashCommands: SlashCommand[] = [];
+	#skillSlashCommands: SlashCommand[] = [];
+	#ompLiveReload: OmpLiveReloadController;
 	#cleanupUnsubscribe?: () => void;
 	readonly #version: string;
 	readonly #changelogMarkdown: string | undefined;
@@ -155,7 +160,12 @@ export class InteractiveMode implements InteractiveModeContext {
 	#pendingModelSwitch: Model | undefined;
 	#planModeHasEntered = false;
 	readonly lspServers:
-		| Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }>
+		| Array<{
+				name: string;
+				status: "ready" | "error";
+				fileTypes: string[];
+				error?: string;
+		  }>
 		| undefined = undefined;
 	mcpManager?: import("../mcp").MCPManager;
 	readonly #toolUiContextSetter: (uiContext: ExtensionUIContext, hasUI: boolean) => void;
@@ -180,7 +190,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		changelogMarkdown: string | undefined = undefined,
 		setToolUIContext: (uiContext: ExtensionUIContext, hasUI: boolean) => void = () => {},
 		lspServers:
-			| Array<{ name: string; status: "ready" | "error"; fileTypes: string[]; error?: string }>
+			| Array<{
+					name: string;
+					status: "ready" | "error";
+					fileTypes: string[];
+					error?: string;
+			  }>
 			| undefined = undefined,
 		mcpManager?: import("../mcp").MCPManager,
 	) {
@@ -249,17 +264,30 @@ export class InteractiveMode implements InteractiveModeContext {
 		}));
 
 		// Build skill commands from session.skills (if enabled)
-		const skillCommandList: SlashCommand[] = [];
-		if (settings.get("skills.enableSkillCommands")) {
-			for (const skill of this.session.skills) {
-				const commandName = `skill:${skill.name}`;
-				this.skillCommands.set(commandName, skill.filePath);
-				skillCommandList.push({ name: commandName, description: skill.description });
-			}
-		}
+		this.#syncSkillCommandMap(this.session.skills);
 
-		// Store pending commands for init() where file commands are loaded async
-		this.#pendingSlashCommands = [...BUILTIN_SLASH_COMMANDS, ...hookCommands, ...customCommands, ...skillCommandList];
+		// Store base commands for runtime refreshes where file commands are loaded async.
+		this.#baseSlashCommands = [...BUILTIN_SLASH_COMMANDS, ...hookCommands, ...customCommands];
+
+		// Fork integration: this controller exists to support hot reloading for native OMP commands/skills.
+		this.#ompLiveReload = new OmpLiveReloadController(
+			{
+				onRefreshRequested: async () => {
+					await this.refreshRuntimeCommandState(this.sessionManager.getCwd());
+				},
+				onErrorStateChanged: message => {
+					this.setHookStatus(OMP_LIVE_RELOAD_STATUS_KEY, message ? theme.fg("warning", message) : undefined);
+					if (message) {
+						this.showWarning(message);
+					}
+				},
+			},
+			{
+				mode: this.settings.get("commands.liveReloadMode"),
+				projectDir: this.sessionManager.getCwd(),
+				userAgentDir: this.settings.getAgentDir(),
+			},
+		);
 
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);
@@ -278,9 +306,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		// Register session manager flush for signal handlers (SIGINT, SIGTERM, SIGHUP)
 		this.#cleanupUnsubscribe = postmortem.register("session-manager-flush", () => this.sessionManager.flush());
 
-		await logger.timeAsync("InteractiveMode.init:slashCommands", () =>
-			this.refreshSlashCommandState(getProjectDir()),
-		);
+		const startupCwd = this.sessionManager.getCwd();
+		// Fork integration for hot reloading: initialize runtime state, then bind watchers for current cwd/mode.
+		await logger.timeAsync("InteractiveMode.init:runtimeCommands", () => this.refreshRuntimeCommandState(startupCwd));
+		await this.#syncOmpLiveReload({ cwd: startupCwd, triggerRefresh: false });
 
 		// Get current model info for welcome screen
 		const modelName = this.session.model?.name ?? "Unknown";
@@ -401,11 +430,72 @@ export class InteractiveMode implements InteractiveModeContext {
 			description: cmd.description,
 		}));
 		const autocompleteProvider = this.#inputController.createAutocompleteProvider(
-			[...this.#pendingSlashCommands, ...fileSlashCommands],
+			[...this.#baseSlashCommands, ...this.#skillSlashCommands, ...fileSlashCommands],
 			basePath,
 		);
 		this.editor.setAutocompleteProvider(autocompleteProvider);
 		this.session.setSlashCommands(fileCommands);
+	}
+
+	/** Refresh slash-command and skill runtime state from current discovery sources. */
+	async refreshRuntimeCommandState(cwd?: string): Promise<void> {
+		const basePath = cwd ?? this.sessionManager.getCwd();
+		await this.#refreshSkillCommandState(basePath);
+		await this.refreshSlashCommandState(basePath);
+	}
+
+	#syncSkillCommandMap(skills: readonly Skill[]): void {
+		this.skillCommands.clear();
+		this.#skillSlashCommands = [];
+		if (!settings.get("skills.enableSkillCommands")) {
+			return;
+		}
+		for (const skill of skills) {
+			const commandName = `skill:${skill.name}`;
+			this.skillCommands.set(commandName, skill.filePath);
+			this.#skillSlashCommands.push({
+				name: commandName,
+				description: skill.description,
+			});
+		}
+	}
+
+	async #refreshSkillCommandState(cwd: string): Promise<void> {
+		const skillSettings = this.session.skillsSettings ?? {};
+		const { skills, warnings } = await loadSkills({
+			...skillSettings,
+			cwd,
+		});
+		this.session.setSkills(skills, warnings);
+		this.#syncSkillCommandMap(skills);
+	}
+
+	async #syncOmpLiveReload(options: { cwd: string; triggerRefresh: boolean }): Promise<void> {
+		// Fork integration for hot reloading: runtime watcher behavior is controlled by commands.liveReloadMode.
+		const mode = this.settings.get("commands.liveReloadMode") as OmpLiveReloadMode;
+		await this.#ompLiveReload.configure({
+			mode,
+			projectDir: options.cwd,
+			userAgentDir: this.settings.getAgentDir(),
+		});
+		if (mode === "omp" && options.triggerRefresh) {
+			await this.refreshRuntimeCommandState(options.cwd);
+		}
+	}
+
+	async syncOmpLiveReloadState(cwd?: string, options?: { triggerRefresh?: boolean }): Promise<void> {
+		await this.#syncOmpLiveReload({
+			cwd: cwd ?? this.sessionManager.getCwd(),
+			triggerRefresh: options?.triggerRefresh ?? false,
+		});
+	}
+
+	async handleReloadCommand(): Promise<void> {
+		// Fork integration: /reload is the explicit hot-reload recovery path for watchers + runtime commands.
+		const cwd = this.sessionManager.getCwd();
+		await this.syncOmpLiveReloadState(cwd, { triggerRefresh: false });
+		await this.refreshRuntimeCommandState(cwd);
+		await this.handleMCPCommand("/mcp reload");
 	}
 
 	async getUserInput(): Promise<SubmittedUserInput> {
@@ -821,7 +911,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (choice === "Approve and execute") {
 			const finalPlanFilePath = details.finalPlanFilePath || planFilePath;
 			try {
-				await this.#approvePlan(planContent, { planFilePath, finalPlanFilePath });
+				await this.#approvePlan(planContent, {
+					planFilePath,
+					finalPlanFilePath,
+				});
 			} catch (error) {
 				this.showError(
 					`Failed to finalize approved plan: ${error instanceof Error ? error.message : String(error)}`,
@@ -838,6 +931,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	stop(): void {
+		this.#ompLiveReload.dispose();
 		if (this.loadingAnimation) {
 			this.loadingAnimation.stop();
 			this.loadingAnimation = undefined;

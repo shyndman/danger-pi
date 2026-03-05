@@ -8,6 +8,12 @@ Verified integration points already exist and should be reused:
 - Builtin slash command routing in `slash-commands/builtin-registry.ts` (where `/reload` will be added).
 - Existing `fs.watch` usage patterns in UI components (proof we can implement without a new dependency).
 
+Verified runtime/dependency constraints:
+- `packages/coding-agent` is Bun-first (`engines.bun >= 1.3.7`).
+- Bun documents support for `node:fs.watch` and `node:fs/promises.watch`.
+- Node docs (v25) document `fs.watch(...)` / `fsPromises.watch(...)` with `recursive`, `signal`, and `ignore` options (platform caveats still apply).
+- Current workspace dependencies do not include watcher libraries such as `chokidar` or `@parcel/watcher`.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -41,29 +47,53 @@ Verified integration points already exist and should be reused:
    - Run both through one shared orchestration function used by watchers and `/reload`.
    - Alternative rejected: duplicate refresh logic for each trigger.
 
-> [!REVIEW]
-> Be sure to comment WHY you're doing things this way alongside the code. It's important that the agents in the future understand the pattern of trying to stay out of upstream's way.
+4. **Default to built-in watchers; avoid third-party dependency in iteration one.**
+   - Primary implementation path is `node:fs.watch`/`node:fs/promises.watch`.
+   - Rationale: keeps this fork patch surgical and Bun-compatible without adding install-time native-module risk.
+   - Alternative rejected (for now): introducing `chokidar`/`@parcel/watcher` before proving built-in watcher gaps.
 
-
-4. **Watch parent roots and child content roots together.**
+5. **Watch parent roots and child content roots together.**
    - Parent root watch is required for mid-session `<cwd>/.omp` creation/removal.
    - Child watches cover `commands/` and `skills/` updates.
    - Alternative rejected: watch children only.
 
-5. **Add top-level `/reload` by extending builtin slash command registry.**
+6. **Add top-level `/reload` by extending builtin slash command registry.**
    - `/reload` runs: watcher rebind retry + command/skill refresh + MCP reload call.
    - This avoids introducing a parallel command parser path.
    - Alternative rejected: create ad-hoc command handling outside builtin registry.
 
-6. **Persist watcher failures until healed.**
+7. **Persist watcher failures until healed.**
    - Keep one persistent failure state in interactive runtime.
    - Clear it only after successful watcher setup.
    - Alternative rejected: one-shot error notifications.
 
-7. **File-touch strategy (fork-minimal).**
+8. **File-touch strategy (fork-minimal).**
    - Small edits in: `interactive-mode.ts`, `selector-controller.ts`, `builtin-registry.ts`, `settings-schema.ts`, and relevant settings typing.
    - Add at most one new helper module for watcher orchestration.
    - Do not refactor discovery provider modules in this change.
+
+## Third-Party Watcher Options (researched, 2026)
+
+1. **Built-in `node:fs.watch` / `node:fs/promises.watch` (recommended baseline)**
+   - Dependency: none.
+   - API shape:
+     - `watch(path, options?, listener?) -> FSWatcher`.
+     - `fsPromises.watch(path, options?) -> AsyncIterator<{ eventType, filename }>`.
+   - Fit: best for this fork's minimal-change objective.
+
+2. **`chokidar` (`^5.0`)**
+   - Latest verified version: `5.0.0`.
+   - API shape: `chokidar.watch(paths, options)`; events include `add/change/unlink/addDir/unlinkDir/ready/error`; async `close()`.
+   - Constraints from package metadata: ESM-only and Node `>=20.19.0`.
+   - Use only if built-in watchers prove insufficient in tests.
+
+3. **`@parcel/watcher` (`^2.5`) + optional `@parcel/watcher-wasm` (`^2.5`)**
+   - Latest verified version: `2.5.6` for both packages.
+   - API shape: `subscribe(dir, callback) -> { unsubscribe() }`, plus `writeSnapshot()` and `getEventsSince()`.
+   - Constraints: native module install path and Bun lifecycle-script trust requirements; Bun issue reports show prebuild friction in some setups.
+   - Use only if snapshot/history semantics are required and native-module operational overhead is acceptable.
+
+Selection rule for this change: ship built-in watcher path first; only introduce a third-party watcher if failing tests reveal concrete gaps.
 
 ## Risks / Trade-offs
 
@@ -71,6 +101,7 @@ Verified integration points already exist and should be reused:
 - **[UI noise from persistent watcher failures]** → Use one persistent status surface with deduplicated message updates rather than repeated spam.
 - **[State synchronization issues between slash command registry, skill map, and session prompt state]** → Refresh these components in a defined order inside one orchestration function.
 - **[Scope creep toward TS command/module reloading]** → Keep explicit boundary: markdown commands + skills only.
+- **[Native addon friction in Bun if external watcher is added]** → keep iteration-one implementation dependency-free.
 
 ## Migration Plan
 

@@ -657,7 +657,9 @@ export class CommandController {
 			await this.ctx.sessionManager.moveTo(resolvedPath);
 			setProjectDir(resolvedPath);
 			resetCapabilities();
-			await this.ctx.refreshSlashCommandState(resolvedPath);
+			// Fork integration: after /move, refresh runtime state so OMP hot reloading follows the new cwd.
+			await this.ctx.refreshRuntimeCommandState(resolvedPath);
+			await this.ctx.syncOmpLiveReloadState(resolvedPath);
 
 			this.ctx.statusLine.invalidate();
 			this.ctx.updateEditorTopBorder();
