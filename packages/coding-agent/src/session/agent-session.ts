@@ -2824,15 +2824,8 @@ export class AgentSession {
 			return;
 		}
 
-		// Synthetic events below persist the message via Agent.emitExternalEvent, so we avoid
-		// directly mutating agent state here to prevent duplicate chat entries.
-		this.sessionManager.appendCustomMessageEntry(
-			message.customType,
-			message.content,
-			message.display,
-			message.details,
-			message.attribution ?? "agent",
-		);
+		// Synthetic events below append to agent state and flow through AgentSession's
+		// message_end persistence path, so avoid direct session writes here.
 		this.agent.emitExternalEvent({ type: "message_start", message: appMessage });
 		this.agent.emitExternalEvent({ type: "message_end", message: appMessage });
 	}

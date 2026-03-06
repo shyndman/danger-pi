@@ -74,4 +74,24 @@ describe("AgentSession custom messages", () => {
 		expect(session.agent.state.messages).toHaveLength(1);
 		expect(session.agent.state.messages[0]).toMatchObject({ role: "custom", customType: "skill-prompt" });
 	});
+
+	it("persists non-turn custom messages exactly once after event processing", async () => {
+		await session.sendCustomMessage({
+			customType: "multi-block-text",
+			content: "hello",
+			display: true,
+			details: { suppressTurn: true },
+		});
+
+		await Bun.sleep(0);
+
+		const persistedCustomEntries = session.sessionManager
+			.getEntries()
+			.filter(
+				(entry): entry is typeof entry & { type: "custom_message" } =>
+					entry.type === "custom_message" && entry.customType === "multi-block-text",
+			);
+
+		expect(persistedCustomEntries).toHaveLength(1);
+	});
 });
