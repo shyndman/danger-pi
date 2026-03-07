@@ -31,6 +31,7 @@ interface AppKeybindings {
 	"app.message.followUp": true;
 	"app.message.dequeue": true;
 	"app.clipboard.pasteImage": true;
+	"app.clipboard.pasteExec": true;
 	"app.clipboard.copyLine": true;
 	"app.clipboard.copyPrompt": true;
 	"app.session.new": true;
@@ -119,6 +120,10 @@ export const KEYBINDINGS = {
 	"app.clipboard.pasteImage": {
 		defaultKeys: process.platform === "win32" ? "alt+v" : "ctrl+v",
 		description: "Paste image from clipboard",
+	},
+	"app.clipboard.pasteExec": {
+		defaultKeys: "ctrl+shift+alt+v",
+		description: "Execute-intent paste",
 	},
 	"app.clipboard.copyLine": {
 		defaultKeys: "alt+shift+l",
@@ -215,6 +220,7 @@ const KEYBINDING_NAME_MIGRATIONS = {
 	fork: "app.session.fork",
 	resume: "app.session.resume",
 	toggleSTT: "app.stt.toggle",
+	pasteExec: "app.clipboard.pasteExec",
 	// TUI editor (old names for backward compatibility)
 	cursorUp: "tui.editor.cursorUp",
 	cursorDown: "tui.editor.cursorDown",
@@ -344,7 +350,10 @@ function loadRawConfig(filePath: string): unknown {
 		if (isEnoent(error)) {
 			return null;
 		}
-		logger.warn("Failed to parse keybindings config", { path: filePath, error: String(error) });
+		logger.warn("Failed to parse keybindings config", {
+			path: filePath,
+			error: String(error),
+		});
 		return null;
 	}
 }
@@ -367,7 +376,10 @@ function loadKeybindingsConfig(filePath: string, writeBack: boolean): Keybinding
 			writeFileSync(filePath, `${JSON.stringify(ordered, null, 2)}\n`, "utf-8");
 			logger.debug("Migrated keybindings config", { path: filePath });
 		} catch (error) {
-			logger.warn("Failed to write migrated keybindings config", { path: filePath, error: String(error) });
+			logger.warn("Failed to write migrated keybindings config", {
+				path: filePath,
+				error: String(error),
+			});
 		}
 	}
 

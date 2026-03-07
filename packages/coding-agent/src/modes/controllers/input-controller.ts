@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import { type AgentMessage, ThinkingLevel } from "@oh-my-pi/pi-agent-core";
-import { copyToClipboard, readImageFromClipboard, sanitizeText } from "@oh-my-pi/pi-natives";
+import { copyToClipboard, readImageFromClipboard, readTextFromClipboard, sanitizeText } from "@oh-my-pi/pi-natives";
 import type { AutocompleteProvider, SlashCommand } from "@oh-my-pi/pi-tui";
 import { $env } from "@oh-my-pi/pi-utils";
 import { settings } from "../../config/settings";
@@ -158,6 +158,9 @@ export class InputController {
 		for (const key of this.ctx.keybindings.getKeys("app.message.followUp")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => void this.handleFollowUp());
 		}
+		for (const key of this.ctx.keybindings.getKeys("app.clipboard.pasteExec")) {
+			this.ctx.editor.setCustomKeyHandler(key, () => void this.handleExecuteIntentPaste());
+		}
 		for (const key of this.ctx.keybindings.getKeys("app.stt.toggle")) {
 			this.ctx.editor.setCustomKeyHandler(key, () => void this.ctx.handleSTTToggle());
 		}
@@ -178,7 +181,7 @@ export class InputController {
 	}
 
 	setupEditorSubmitHandler(): void {
-		this.ctx.editor.onSubmit = async (text: string) => {
+		this.ctx.editor.onSubmit = async (text: string, metadata) => {
 			text = text.trim();
 			let historyText = text;
 
@@ -229,6 +232,7 @@ export class InputController {
 			const multiBlockResult = await runMultiBlockSubmission({
 				ctx: this.ctx,
 				text,
+				lineIntents: metadata?.lineIntents,
 				handleSkillCommand: (commandText, options) => this.#handleSkillCommand(commandText, options),
 				handleBackgroundCommand: () => this.handleBackgroundCommand(),
 				handleBashShortcut: (command, excludeFromContext) =>
@@ -545,6 +549,31 @@ export class InputController {
 		}
 
 		process.kill(0, "SIGTSTP");
+	}
+
+	/**
+	 * <intent>
+	 * Execute-intent paste exists to allow deliberate command/shortcut execution from pasted clipboard text while default terminal paste remains non-executable for slash/shortcut classification.
+	 * This handler reads clipboard text best-effort, applies execute intent metadata, and must fail non-blocking when clipboard access is unavailable.
+	 * </intent>
+	 */
+	async handleExecuteIntentPaste(): Promise<void> {
+		try {
+			// Execute-intent paste must read local clipboard APIs directly, but remote/headless sessions
+			// can lack clipboard providers; when unavailable, users can fall back to terminal bracketed paste.
+			const clipboardText = await readTextFromClipboard();
+			if (!clipboardText) {
+				this.ctx.showStatus(
+					"Clipboard text unavailable for execute-intent paste (use terminal paste for safe text)",
+				);
+				return;
+			}
+
+			this.ctx.editor.insertPastedText(clipboardText, "exec");
+			this.ctx.ui.requestRender();
+		} catch {
+			this.ctx.showStatus("Clipboard text unavailable for execute-intent paste (use terminal paste for safe text)");
+		}
 	}
 
 	async handleImagePaste(): Promise<boolean> {

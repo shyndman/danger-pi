@@ -243,6 +243,7 @@ function validateNative(bindings: NativeBindings, source: string): void {
 	};
 	checkFn("copyToClipboard");
 	checkFn("readImageFromClipboard");
+	checkFn("readTextFromClipboard");
 	checkFn("encodeSixel");
 	checkFn("glob");
 	checkFn("fuzzyFind");

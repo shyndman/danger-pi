@@ -16,8 +16,6 @@ export * from "./components/spacer";
 export * from "./components/tab-bar";
 export * from "./components/text";
 export * from "./components/truncated-text";
-// Editor component interface (for custom editors)
-export type * from "./editor-component";
 // Fuzzy matching
 export * from "./fuzzy";
 // Keybindings

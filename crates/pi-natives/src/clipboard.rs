@@ -13,6 +13,15 @@ use napi_derive::napi;
 
 use crate::task;
 
+const fn is_clipboard_unavailable(err: &ClipboardError) -> bool {
+	matches!(
+		err,
+		ClipboardError::ContentNotAvailable
+			| ClipboardError::ClipboardNotSupported
+			| ClipboardError::ClipboardOccupied
+	)
+}
+
 /// Clipboard image payload encoded as PNG bytes.
 #[napi(object)]
 pub struct ClipboardImage {
@@ -75,8 +84,33 @@ pub fn read_image_from_clipboard() -> task::Async<Option<ClipboardImage>> {
 					mime_type: "image/png".to_string(),
 				}))
 			},
-			Err(ClipboardError::ContentNotAvailable) => Ok(None),
+			Err(err) if is_clipboard_unavailable(&err) => Ok(None),
 			Err(err) => Err(Error::from_reason(format!("Failed to read clipboard image: {err}"))),
+		}
+	})
+}
+
+/// Read plain text from the system clipboard.
+///
+/// Returns `Ok(None)` when clipboard text is unavailable in the current
+/// environment (for example no content, unsupported clipboard backend, or
+/// temporary contention).
+///
+/// # Errors
+/// Returns an error for unexpected clipboard failures.
+#[napi(js_name = "readTextFromClipboard")]
+pub fn read_text_from_clipboard() -> task::Async<Option<String>> {
+	task::blocking("clipboard.read_text", (), move |_| -> Result<Option<String>> {
+		let mut clipboard = match Clipboard::new() {
+			Ok(clipboard) => clipboard,
+			Err(err) if is_clipboard_unavailable(&err) => return Ok(None),
+			Err(err) => return Err(Error::from_reason(format!("Failed to access clipboard: {err}"))),
+		};
+
+		match clipboard.get_text() {
+			Ok(text) => Ok(Some(text)),
+			Err(err) if is_clipboard_unavailable(&err) => Ok(None),
+			Err(err) => Err(Error::from_reason(format!("Failed to read clipboard text: {err}"))),
 		}
 	})
 }

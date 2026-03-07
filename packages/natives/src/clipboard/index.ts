@@ -16,6 +16,29 @@ export type { ClipboardImage } from "./types";
 /** Whether a display server is available on Linux. */
 const hasDisplay = process.platform !== "linux" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 
+const CLIPBOARD_UNAVAILABLE_ERROR_TOKENS = ["ContentNotAvailable", "ClipboardNotSupported", "ClipboardOccupied"];
+
+function isClipboardUnavailableError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return CLIPBOARD_UNAVAILABLE_ERROR_TOKENS.some(token => message.includes(token));
+}
+
+async function readTermuxClipboardText(): Promise<string | null> {
+	try {
+		const child = Bun.spawn(["termux-clipboard-get"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+		if (exitCode !== 0) {
+			return null;
+		}
+		return stdout;
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Copy text to the system clipboard.
  *
@@ -89,4 +112,31 @@ export async function readImageFromClipboard(): Promise<ClipboardImage | null> {
 	}
 
 	return native.readImageFromClipboard();
+}
+
+/**
+ * Read text from the system clipboard.
+ *
+ * In Termux, this first tries `termux-clipboard-get` (provided by the `termux-api`
+ * package and Termux:API app/service). Failures remain non-blocking and fall back to
+ * native clipboard bindings.
+ *
+ * @returns Clipboard text or null when clipboard access is unavailable.
+ */
+export async function readTextFromClipboard(): Promise<string | null> {
+	if (process.env.TERMUX_VERSION) {
+		const termuxText = await readTermuxClipboardText();
+		if (termuxText !== null) {
+			return termuxText;
+		}
+	}
+
+	try {
+		return await native.readTextFromClipboard();
+	} catch (error) {
+		if (isClipboardUnavailableError(error)) {
+			return null;
+		}
+		throw error;
+	}
 }

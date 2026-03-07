@@ -18,12 +18,34 @@ export interface SplitSubmissionResult {
 
 export type SubmissionBlockDetector = (candidate: string) => boolean;
 
+export type SubmissionLineIntent = "safe" | "exec";
+
+export interface SubmissionLineIntentEntry {
+	line: number;
+	intent: SubmissionLineIntent;
+}
+
 export interface SplitSubmissionOptions {
 	isSupportedSlashCommand: SubmissionBlockDetector;
+	lineIntents?: SubmissionLineIntentEntry[];
 }
 
 const FENCED_SHORTCUT_TOKEN = "```";
 const ESCAPED_FENCED_SHORTCUT_TOKEN = `\\${FENCED_SHORTCUT_TOKEN}`;
+
+function startsWithMarkdownImageSyntax(trimmed: string): boolean {
+	if (!trimmed.startsWith("![")) {
+		return false;
+	}
+
+	const altTextClose = trimmed.indexOf("]", 2);
+	if (altTextClose === -1) {
+		return false;
+	}
+
+	const suffixLead = trimmed[altTextClose + 1];
+	return suffixLead === "(" || suffixLead === "[";
+}
 
 function normalizeNewlines(text: string): string {
 	return text.replace(/\r\n/g, "\n");
@@ -49,6 +71,9 @@ function parseExecutableShortcutBlock(trimmed: string): SubmissionBlock | null {
 	}
 
 	if (trimmed.startsWith("!")) {
+		if (startsWithMarkdownImageSyntax(trimmed)) {
+			return null;
+		}
 		return trimmed.slice(1).trim().length > 0 ? { type: "bash-shortcut", text: trimmed } : null;
 	}
 
@@ -135,29 +160,36 @@ function parseFencedShortcutBlock(
 export function splitSubmissionIntoBlocks(submission: string, options: SplitSubmissionOptions): SplitSubmissionResult {
 	const normalized = normalizeNewlines(submission);
 	const lines = normalized.split("\n");
+	const lineIntentByIndex = new Map<number, SubmissionLineIntent>();
+	for (const entry of options.lineIntents ?? []) {
+		lineIntentByIndex.set(entry.line, entry.intent);
+	}
 	const result: SubmissionBlock[] = [];
 	let pendingText = "";
 
 	for (let i = 0; i < lines.length; i += 1) {
-		const fencedResult = parseFencedShortcutBlock(lines, i);
-		if (fencedResult) {
-			pendingText = flushPendingText(pendingText, result, true);
-			if (fencedResult.parseError) {
-				return { blocks: result, parseError: fencedResult.parseError };
+		const isSafeLine = lineIntentByIndex.get(i) === "safe";
+		if (!isSafeLine) {
+			const fencedResult = parseFencedShortcutBlock(lines, i);
+			if (fencedResult) {
+				pendingText = flushPendingText(pendingText, result, true);
+				if (fencedResult.parseError) {
+					return { blocks: result, parseError: fencedResult.parseError };
+				}
+				if (fencedResult.block) {
+					result.push(fencedResult.block);
+				}
+				i = fencedResult.nextIndex;
+				continue;
 			}
-			if (fencedResult.block) {
-				result.push(fencedResult.block);
-			}
-			i = fencedResult.nextIndex;
-			continue;
 		}
 
 		const line = lines[i];
 		const suffix = i < lines.length - 1 ? "\n" : "";
 		const trimmed = line.trim();
 		const candidate = trimmed.startsWith("/") ? trimmed : null;
-		const isCommand = Boolean(candidate && options.isSupportedSlashCommand(trimmed));
-		const shortcutBlock = isCommand ? null : parseExecutableShortcutBlock(trimmed);
+		const isCommand = !isSafeLine && Boolean(candidate && options.isSupportedSlashCommand(trimmed));
+		const shortcutBlock = isCommand || isSafeLine ? null : parseExecutableShortcutBlock(trimmed);
 
 		if (isCommand && candidate) {
 			pendingText = flushPendingText(pendingText, result, true);

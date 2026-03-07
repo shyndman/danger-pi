@@ -56,7 +56,7 @@ function createTestContext() {
 		session: {
 			isStreaming: false,
 			queuedMessageCount: 0,
-			messages: [],
+			messages: [{ role: "assistant" }],
 			abort: vi.fn(async () => {}),
 			extensionRunner: undefined,
 			isCompacting: false,
@@ -309,7 +309,12 @@ describe("InputController multi-block submissions", () => {
 			expect.objectContaining({ customType: "multi-block-text", content: "this is another" }),
 			expect.objectContaining({ triggerTurn: false }),
 		);
-		expect(onInput).toHaveBeenCalledWith({ text: "", continueFromContext: true });
+		expect(onInput).toHaveBeenCalledWith({
+			text: "",
+			continueFromContext: true,
+			cancelled: false,
+			started: true,
+		});
 		expect(editor.history).toEqual(["this is a message", "this is another", submission]);
 	});
 
@@ -346,7 +351,12 @@ describe("InputController multi-block submissions", () => {
 
 		expect(ctx.handleBashCommand).not.toHaveBeenCalled();
 		expect(ctx.handlePythonCommand).not.toHaveBeenCalled();
-		expect(onInput).toHaveBeenCalledWith({ text: submission, images: undefined });
+		expect(onInput).toHaveBeenCalledWith({
+			text: submission,
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
 	});
 
 	it("executes fenced bash shortcuts as one command block", async () => {
@@ -403,7 +413,12 @@ describe("InputController multi-block submissions", () => {
 			expect.objectContaining({ customType: "multi-block-text", content: "message one" }),
 			expect.objectContaining({ triggerTurn: false }),
 		);
-		expect(onInput).toHaveBeenCalledWith({ text: "message two", images: undefined });
+		expect(onInput).toHaveBeenCalledWith({
+			text: "message two",
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
 		expect(editor.history).toEqual(["message one", submission]);
 	});
 });

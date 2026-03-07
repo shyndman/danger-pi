@@ -177,6 +177,28 @@ describe("runMultiBlockSubmission", () => {
 		expect(ctx.editor.setText).toHaveBeenCalledWith("snapshot");
 	});
 
+	it("treats safe-intent shortcut lines as text", async () => {
+		const ctx = createContext();
+		const handleTextBlock = vi.fn(async () => {});
+		const handleBashShortcut = vi.fn(async () => true);
+		const handlePythonShortcut = vi.fn(async () => true);
+		const result = await runMultiBlockSubmission({
+			ctx,
+			text: "!ls\nhello",
+			lineIntents: [{ line: 0, intent: "safe" }],
+			handleSkillCommand: vi.fn(async () => "not-handled" as const),
+			handleBackgroundCommand: vi.fn(),
+			handleBashShortcut,
+			handlePythonShortcut,
+			handleTextBlock,
+		});
+
+		expect(result).toEqual({ processed: false });
+		expect(handleBashShortcut).not.toHaveBeenCalled();
+		expect(handlePythonShortcut).not.toHaveBeenCalled();
+		expect(handleTextBlock).not.toHaveBeenCalled();
+	});
+
 	it("aborts multi-block processing on fenced shortcut parse errors", async () => {
 		const ctx = createContext();
 		const handleTextBlock = vi.fn(async () => {});

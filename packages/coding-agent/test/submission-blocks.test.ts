@@ -4,6 +4,7 @@ import {
 	type SplitSubmissionResult,
 	type SubmissionBlock,
 	type SubmissionBlockDetector,
+	type SubmissionLineIntentEntry,
 	splitSubmissionIntoBlocks,
 } from "../src/modes/controllers/submission-blocks";
 
@@ -20,9 +21,14 @@ function extractKinds(blocks: SubmissionBlock[]): string[] {
 	return blocks.map(block => block.type);
 }
 
-function split(submission: string, detector: SubmissionBlockDetector): SplitSubmissionResult {
+function split(
+	submission: string,
+	detector: SubmissionBlockDetector,
+	lineIntents?: SubmissionLineIntentEntry[],
+): SplitSubmissionResult {
 	return splitSubmissionIntoBlocks(submission, {
 		isSupportedSlashCommand: detector,
+		lineIntents,
 	});
 }
 
@@ -140,6 +146,115 @@ Final line`;
 			{ type: "text", text: "\tthis is another" },
 			{ type: "python-shortcut", text: "$print('hi')" },
 			{ type: "python-shortcut", text: "$$ print('hidden')" },
+		]);
+	});
+
+	it("keeps safe pasted executable prefixes as text", () => {
+		const detector = createDetector(["plan"]);
+		const submission = `!ls -al
+!! pwd
+$print('hi')
+$$ print('hidden')
+/plan focus auth`;
+
+		const result = split(submission, detector, [
+			{ line: 0, intent: "safe" },
+			{ line: 1, intent: "safe" },
+			{ line: 2, intent: "safe" },
+			{ line: 3, intent: "safe" },
+			{ line: 4, intent: "safe" },
+		]);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([{ type: "text", text: submission }]);
+	});
+
+	it("keeps safe pasted fenced shortcut syntax as text", () => {
+		const detector = createDetector(["plan"]);
+		const fence = "```";
+		const submission = `!${fence}
+echo "safe"
+${fence}
+/plan focus auth`;
+
+		const result = split(submission, detector, [
+			{ line: 0, intent: "safe" },
+			{ line: 1, intent: "safe" },
+			{ line: 2, intent: "safe" },
+			{ line: 3, intent: "safe" },
+		]);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([{ type: "text", text: submission }]);
+	});
+
+	it("classifies execute-intent pasted lines with normal executable rules", () => {
+		const detector = createDetector(["plan"]);
+		const submission = `!ls -al
+$print('hi')
+/plan focus auth`;
+
+		const result = split(submission, detector, [
+			{ line: 0, intent: "exec" },
+			{ line: 1, intent: "exec" },
+			{ line: 2, intent: "exec" },
+		]);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([
+			{ type: "bash-shortcut", text: "!ls -al" },
+			{ type: "python-shortcut", text: "$print('hi')" },
+			{ type: "command", text: "/plan focus auth" },
+		]);
+	});
+
+	it("preserves ordering and intent for mixed typed, safe, and execute-intent lines", () => {
+		const detector = createDetector(["plan"]);
+		const submission = `/plan typed
+!safe bash
+/plan exec
+$$ print('run')`;
+
+		const result = split(submission, detector, [
+			{ line: 1, intent: "safe" },
+			{ line: 2, intent: "exec" },
+			{ line: 3, intent: "exec" },
+		]);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([
+			{ type: "command", text: "/plan typed" },
+			{ type: "text", text: "!safe bash" },
+			{ type: "command", text: "/plan exec" },
+			{ type: "python-shortcut", text: "$$ print('run')" },
+		]);
+	});
+
+	it("keeps markdown image syntax lines as text blocks", () => {
+		const detector = createDetector(["plan"]);
+		const submission = `![diagram](./foo.png)
+![alt][img-ref]
+Second line`;
+
+		const result = split(submission, detector);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([{ type: "text", text: submission }]);
+	});
+
+	it("keeps markdown image lines as text while still parsing real bash shortcuts", () => {
+		const detector = createDetector(["plan"]);
+		const submission = `![diagram](./foo.png)
+!ls -al
+![alt][img-ref]`;
+
+		const result = split(submission, detector);
+
+		expect(result.parseError).toBeUndefined();
+		expect(result.blocks).toEqual([
+			{ type: "text", text: "![diagram](./foo.png)" },
+			{ type: "bash-shortcut", text: "!ls -al" },
+			{ type: "text", text: "![alt][img-ref]" },
 		]);
 	});
 

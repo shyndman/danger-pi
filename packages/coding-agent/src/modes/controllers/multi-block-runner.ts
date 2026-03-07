@@ -6,7 +6,7 @@ import {
 	isBuiltinSlashCommandName,
 } from "../../slash-commands/builtin-registry";
 import type { InteractiveModeContext } from "../types";
-import { type SubmissionBlock, splitSubmissionIntoBlocks } from "./submission-blocks";
+import { type SubmissionBlock, type SubmissionLineIntentEntry, splitSubmissionIntoBlocks } from "./submission-blocks";
 
 type SkillCommandHandler = (
 	text: string,
@@ -44,6 +44,7 @@ export type MultiBlockProcessingResult =
 export interface MultiBlockRunnerOptions {
 	ctx: InteractiveModeContext;
 	text: string;
+	lineIntents?: SubmissionLineIntentEntry[];
 	handleSkillCommand: SkillCommandHandler;
 	handleBackgroundCommand: () => void;
 	handleBashShortcut: ShortcutBlockHandler;
@@ -68,6 +69,7 @@ export async function runMultiBlockSubmission(options: MultiBlockRunnerOptions):
 
 	const splitResult = splitSubmissionIntoBlocks(text, {
 		isSupportedSlashCommand: candidate => isRecognizedSlashCommand(ctx, candidate),
+		lineIntents: options.lineIntents,
 	});
 	if (splitResult.parseError) {
 		ctx.showError(splitResult.parseError.message);
