@@ -233,7 +233,7 @@ export function encodeKitty(
 ): string {
 	const CHUNK_SIZE = 4096;
 
-	const params: string[] = ["a=T", "f=100", "q=2"];
+	const params: string[] = ["a=T", "f=100", "q=2", "C=1"];
 
 	if (options.columns) params.push(`c=${options.columns}`);
 	if (options.rows) params.push(`r=${options.rows}`);
