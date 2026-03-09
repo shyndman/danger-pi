@@ -1,5 +1,8 @@
 ---
-setup: bun install
+setup: bun install && uv tool install prek && prek install
+changelog:
+  exclude:
+    - ./packages/ai/src/models.json 
 ---
 
 * Prek (a modern pre-commit equivalent) is installed on this project. It runs automatically on each `git rebase --continue`, and will automatically ensure that the code lints.
