@@ -1,5 +1,5 @@
 ---
-setup: bun install && uv tool install prek && prek install
+setup: bun install && uv tool run prek install
 changelog:
   exclude:
     - ./packages/ai/src/models.json 

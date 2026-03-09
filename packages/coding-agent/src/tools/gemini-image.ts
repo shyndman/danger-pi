@@ -10,8 +10,8 @@ import geminiImageDescription from "../prompts/tools/gemini-image.md" with { typ
 import { detectSupportedImageMimeTypeFromFile } from "../utils/mime";
 import { resolveReadPath } from "./path-utils";
 
-const DEFAULT_MODEL = "gemini-3-pro-image-preview";
-const DEFAULT_OPENROUTER_MODEL = "google/gemini-3-pro-image-preview";
+const DEFAULT_MODEL = "gemini-3.1-flash-image-preview";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.1-flash-image-preview";
 const DEFAULT_ANTIGRAVITY_MODEL = "gemini-3-pro-image";
 const IMAGE_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 const MAX_IMAGE_SIZE = 35 * 1024 * 1024;
