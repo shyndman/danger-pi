@@ -38,6 +38,14 @@ function detectMimeFromBytes(buf: Buffer, bytesRead: number): string | null {
 	return null;
 }
 
+export function detectSupportedImageMimeTypeFromBuffer(bytes: Uint8Array): string | null {
+	if (bytes.byteLength === 0) {
+		return null;
+	}
+	const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	return detectMimeFromBytes(buffer, Math.min(buffer.byteLength, FILE_TYPE_SNIFF_BYTES));
+}
+
 export async function detectSupportedImageMimeTypeFromFile(filePath: string): Promise<string | null> {
 	const fileHandle = await fs.open(filePath, "r");
 	try {
@@ -46,7 +54,7 @@ export async function detectSupportedImageMimeTypeFromFile(filePath: string): Pr
 		if (bytesRead === 0) {
 			return null;
 		}
-		return detectMimeFromBytes(buffer, bytesRead);
+		return detectSupportedImageMimeTypeFromBuffer(buffer.subarray(0, bytesRead));
 	} finally {
 		await fileHandle.close();
 	}

@@ -15,6 +15,7 @@ import { astEditToolRenderer } from "./ast-edit";
 import { astGrepToolRenderer } from "./ast-grep";
 import { bashToolRenderer } from "./bash";
 import { calculatorToolRenderer } from "./calculator";
+import { displayToolRenderer } from "./display-renderer";
 import { fetchToolRenderer } from "./fetch";
 import { findToolRenderer } from "./find";
 import { grepToolRenderer } from "./grep";
@@ -48,6 +49,7 @@ export const toolRenderers: Record<string, ToolRenderer> = {
 	bash: bashToolRenderer as ToolRenderer,
 	python: pythonToolRenderer as ToolRenderer,
 	calc: calculatorToolRenderer as ToolRenderer,
+	display: displayToolRenderer as ToolRenderer,
 	edit: editToolRenderer as ToolRenderer,
 	find: findToolRenderer as ToolRenderer,
 	grep: grepToolRenderer as ToolRenderer,

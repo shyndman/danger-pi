@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { type SettingPath, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
-import { DisplayTool } from "@oh-my-pi/pi-coding-agent/tools/display";
+import { createDisplayTool } from "@oh-my-pi/pi-coding-agent/tools/display/index";
+import { PhotonImage } from "@oh-my-pi/pi-natives";
 import { TempDir } from "@oh-my-pi/pi-utils";
 
 const TINY_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2r8GQAAAAASUVORK5CYII=";
@@ -30,12 +31,18 @@ function createSettings(overrides: Partial<Record<SettingPath, unknown>> = {}): 
 function createSession(overrides: Partial<ToolSession> = {}): ToolSession {
 	return {
 		cwd: tempDir.path(),
-		hasUI: false,
+		hasUI: true,
 		getSessionFile: () => null,
 		getSessionSpawns: () => "*",
 		settings: createSettings(),
 		...overrides,
 	};
+}
+
+function createTool(overrides: Partial<ToolSession> = {}) {
+	const tool = createDisplayTool(createSession(overrides));
+	expect(tool).toBeDefined();
+	return tool!;
 }
 
 async function writeTinyPng(fileName: string): Promise<string> {
@@ -48,10 +55,10 @@ function toFileUri(filePath: string): string {
 	return pathToFileURL(filePath).toString();
 }
 
-describe("DisplayTool", () => {
-	it("valid image file URI produces success and details.images entry", async () => {
+describe("display tool", () => {
+	it("valid image file URI produces success report and draw intent", async () => {
 		const imagePath = await writeTinyPng("ok.png");
-		const tool = new DisplayTool(createSession());
+		const tool = createTool();
 
 		const result = await tool.execute("call-1", {
 			type: "image",
@@ -59,22 +66,24 @@ describe("DisplayTool", () => {
 		});
 
 		expect(result.details?.error).toBeUndefined();
-		expect(result.details?.images?.length).toBe(1);
-		expect(result.details?.images?.[0]?.mimeType).toBe("image/png");
-		expect(result.details?.images?.[0]?.data).toBeString();
+		expect(result.details?.report).toEqual([{ type: "image", uri: toFileUri(imagePath) }]);
+		expect(result.details?.drawIntents?.length).toBe(1);
+		expect(result.details?.drawIntents?.[0]?.kind).toBe("image");
+		expect(result.details?.drawIntents?.[0]?.image.mimeType).toBe("image/png");
 		expect(result.content[0]?.type).toBe("text");
 	});
 
-	it("success image entry includes integer widthPx and heightPx greater than zero", async () => {
+	it("success draw intent includes integer widthPx and heightPx greater than zero", async () => {
 		const imagePath = await writeTinyPng("dims.png");
-		const tool = new DisplayTool(createSession());
+		const tool = createTool();
 
 		const result = await tool.execute("call-2", {
 			type: "image",
 			resources: [toFileUri(imagePath)],
 		});
 
-		const image = result.details?.images?.[0];
+		const image =
+			result.details?.drawIntents?.[0]?.kind === "image" ? result.details.drawIntents[0].image : undefined;
 		expect(image).toBeDefined();
 		expect(Number.isInteger(image?.widthPx)).toBe(true);
 		expect(Number.isInteger(image?.heightPx)).toBe(true);
@@ -83,134 +92,146 @@ describe("DisplayTool", () => {
 	});
 
 	it("invalid type returns invalid_type", async () => {
-		const tool = new DisplayTool(createSession());
-
-		const result = await tool.execute("call-3", {
-			type: "text",
-			resources: ["file:///tmp/test.png"],
-		} as never);
-
+		const tool = createTool();
+		const result = await tool.execute("call-3", { type: "text", resources: ["file:///tmp/test.png"] } as never);
 		expect(result.details?.error?.code).toBe("invalid_type");
 	});
 
-	it("malformed resource URI records invalid_resource_uri", async () => {
-		const tool = new DisplayTool(createSession());
-
+	it("malformed resource URI records failure entry and call-level error", async () => {
+		const tool = createTool();
 		const result = await tool.execute("call-4", {
 			type: "image",
 			resources: ["not-a-uri"],
 		});
-
-		expect(result.details?.failures?.[0]?.code).toBe("invalid_resource_uri");
+		expect(result.details?.report?.[0]?.error).toContain("absolute URI");
 		expect(result.details?.error?.code).toBe("render_failed");
 	});
 
-	it("non-file URI records unsupported_scheme", async () => {
-		const tool = new DisplayTool(createSession());
-
+	it("unsupported URI scheme records per-resource failure", async () => {
+		const tool = createTool();
 		const result = await tool.execute("call-5", {
 			type: "image",
-			resources: ["https://example.com/img.png"],
+			resources: ["ftp://example.com/img.png"],
 		});
-
-		expect(result.details?.failures?.[0]?.code).toBe("unsupported_scheme");
+		expect(result.details?.report?.[0]?.error).toContain("Unsupported URI scheme: ftp");
 		expect(result.details?.error?.code).toBe("render_failed");
 	});
 
-	it("missing file URI records resource_not_found", async () => {
+	it("missing file URI records resource_not_found-style failure message", async () => {
 		const missingPath = path.join(tempDir.path(), "missing.png");
-		const tool = new DisplayTool(createSession());
-
+		const tool = createTool();
 		const result = await tool.execute("call-6", {
 			type: "image",
 			resources: [toFileUri(missingPath)],
 		});
-
-		expect(result.details?.failures?.[0]?.code).toBe("resource_not_found");
+		expect(result.details?.report?.[0]?.error).toContain("Resource file was not found");
 		expect(result.details?.error?.code).toBe("render_failed");
 	});
 
-	it("mixed-success call returns success with success metadata and failure records", async () => {
+	it("mixed-success image batch keeps success and failure entries in input order", async () => {
 		const imagePath = await writeTinyPng("mixed-ok.png");
-		const tool = new DisplayTool(createSession());
+		const okUri = toFileUri(imagePath);
+		const badUri = "ftp://example.com/bad.png";
+		const tool = createTool();
 
 		const result = await tool.execute("call-7", {
 			type: "image",
-			resources: [toFileUri(imagePath), "https://example.com/bad.png"],
+			resources: [okUri, badUri],
 		});
 
 		expect(result.details?.error).toBeUndefined();
-		expect(result.details?.images?.length).toBe(1);
-		expect(result.details?.failures?.length).toBe(1);
-		expect(result.details?.failures?.[0]?.code).toBe("unsupported_scheme");
+		expect(result.details?.report).toEqual([
+			{ type: "image", uri: okUri },
+			{ type: "image", uri: badUri, error: "Unsupported URI scheme: ftp" },
+		]);
+		expect(result.details?.drawIntents?.length).toBe(1);
 		expect(result.details?.summary).toEqual({ total: 2, succeeded: 1, failed: 1 });
 	});
 
-	it("all-failed call returns call-level error", async () => {
-		const tool = new DisplayTool(createSession());
-
+	it("all-failed call returns call-level error after full batch processing", async () => {
+		const tool = createTool();
 		const result = await tool.execute("call-8", {
 			type: "image",
-			resources: ["https://example.com/nope.png", "not-a-uri"],
+			resources: ["ftp://example.com/nope.png", "not-a-uri"],
 		});
-
 		expect(result.details?.error?.code).toBe("render_failed");
 		expect(result.details?.summary).toEqual({ total: 2, succeeded: 0, failed: 2 });
+		expect(result.details?.report?.length).toBe(2);
 	});
 
-	it("capability-disabled call returns capability_disabled and includes setting key", async () => {
-		const tool = new DisplayTool(createSession({ settings: createSettings({ "display.enableImage": false }) }));
-
+	it("capability-disabled image call returns capability_disabled and setting key", async () => {
+		const tool = createTool({ settings: createSettings({ "display.enableImage": false }) });
 		const result = await tool.execute("call-9", {
 			type: "image",
 			resources: ["file:///tmp/test.png"],
 		});
-
 		expect(result.details?.error?.code).toBe("capability_disabled");
 		expect(result.details?.error?.settingKey).toBe("display.enableImage");
 	});
 
-	it("summary text does not include base64 image payload", async () => {
+	it("summary text does not include base64 display payloads", async () => {
 		const imagePath = await writeTinyPng("summary.png");
-		const tool = new DisplayTool(createSession());
-
+		const tool = createTool();
 		const result = await tool.execute("call-10", {
 			type: "image",
 			resources: [toFileUri(imagePath)],
 		});
-
-		const summaryText = result.content.find(block => block.type === "text")?.text ?? "";
-		expect(summaryText).toContain("Displayed 1 image(s); 0 failed.");
+		const textBlock = result.content.find(block => block.type === "text");
+		const summaryText = textBlock?.type === "text" ? textBlock.text : "";
+		expect(summaryText).toContain("Displayed 1 image resource(s); 0 failed.");
 		expect(summaryText).not.toContain(TINY_PNG_BASE64.slice(0, 16));
-		expect(summaryText).not.toContain(result.details?.images?.[0]?.data ?? "");
+		expect(summaryText).not.toContain(
+			result.details?.drawIntents?.[0]?.kind === "image" ? result.details.drawIntents[0].image.data : "",
+		);
 	});
 
-	it("resource-level failures use approved v0 failure codes only", async () => {
-		const tool = new DisplayTool(createSession());
+	it("duplicate resources produce independent report entries", async () => {
+		const imagePath = await writeTinyPng("duplicate.png");
+		const uri = toFileUri(imagePath);
+		const tool = createTool();
+		const result = await tool.execute("call-11", { type: "image", resources: [uri, uri] });
+		expect(result.details?.report).toEqual([
+			{ type: "image", uri },
+			{ type: "image", uri },
+		]);
+		expect(result.details?.drawIntents?.length).toBe(2);
+	});
 
-		const result = await tool.execute("call-11", {
-			type: "image",
-			resources: [
-				"https://example.com/nope.png",
-				"not-a-uri",
-				toFileUri(path.join(tempDir.path(), "missing-2.png")),
-			],
-		});
-
-		const allowed = new Set(["invalid_resource_uri", "unsupported_scheme", "resource_not_found", "render_failed"]);
-		for (const failure of result.details?.failures ?? []) {
-			expect(allowed.has(failure.code)).toBe(true);
+	it("valid color resources render swatch draw intents while invalid ones report failures", async () => {
+		const tool = createTool();
+		const good = "data:text/plain,%20%23FF0000%20";
+		const bad = "data:text/plain,%23ABC";
+		const result = await tool.execute("call-12", { type: "color", resources: [good, bad] });
+		expect(result.details?.error).toBeUndefined();
+		expect(result.details?.report).toEqual([
+			{ type: "color", uri: good },
+			{ type: "color", uri: bad, error: "Color resources must contain exactly one canonical #RRGGBB value." },
+		]);
+		expect(result.details?.drawIntents?.length).toBe(1);
+		const drawIntent = result.details?.drawIntents?.[0];
+		expect(drawIntent?.kind).toBe("image");
+		if (drawIntent?.kind === "image") {
+			expect(drawIntent.image.mimeType).toBe("image/png");
+			expect(drawIntent.image.widthPx).toBeGreaterThan(0);
+			await expect(
+				PhotonImage.parse(new Uint8Array(Buffer.from(drawIntent.image.data, "base64"))),
+			).resolves.toBeDefined();
 		}
 	});
 
-	it("envelope-level invalid resources returns invalid_args", async () => {
-		const tool = new DisplayTool(createSession());
-		const result = await tool.execute("call-12", { type: "image", resources: [] } as never);
-		expect(result.details?.error?.code).toBe("invalid_args");
+	it("all-invalid color resources return a call-level error after processing all resources", async () => {
+		const tool = createTool();
+		const result = await tool.execute("call-13", {
+			type: "color",
+			resources: ["data:text/plain,%23ABC", "data:text/plain,nope"],
+		});
+		expect(result.details?.error?.code).toBe("render_failed");
+		expect(result.details?.report?.length).toBe(2);
+		expect(result.details?.drawIntents?.length ?? 0).toBe(0);
 	});
 
-	it("runtime display implementation does not import read runtime helpers", async () => {
-		const source = await fs.readFile(path.join(import.meta.dir, "../../src/tools/display.ts"), "utf8");
+	it("display implementation stays isolated from read runtime helpers", async () => {
+		const source = await fs.readFile(path.join(import.meta.dir, "../../src/tools/display/tool.ts"), "utf8");
 		expect(source).not.toContain('from "./read"');
 		expect(source).not.toContain('from "../tools/read"');
 		expect(source).not.toContain('from "@oh-my-pi/pi-coding-agent/tools/read"');

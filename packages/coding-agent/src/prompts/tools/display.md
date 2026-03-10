@@ -1,19 +1,20 @@
-Displays local images to the user using UI-only image metadata.
+Displays user-facing previews using UI-only replay metadata.
 
 <instruction>
-- v0 supports only `type: "image"`
-- `resources` must be a non-empty array of absolute `file:` URI strings
+- Supported `type` values: `image`, `color`
+- `resources` must be a non-empty array of absolute `file:`, `http:`, `https:`, or `data:` URI strings
 - Process resources independently and preserve input order
 - Keep model-facing text concise (counts/outcomes only)
-- Put image payloads in `details.images`, never in summary text
-- Include `widthPx` and `heightPx` for every successful image
-- Use only these resource failure codes: `invalid_resource_uri`, `unsupported_scheme`, `resource_not_found`, `render_failed`
+- Put replay payloads in `details.drawIntents`, never in summary text
+- Mixed batches are best-effort: successful resources render, failed resources report per-resource errors, and the call fails only when every resource fails
+- `image` resources must resolve to supported image bytes
+- `color` resources must resolve to `text/plain` containing exactly one canonical `#RRGGBB` value
 </instruction>
 
 <output>
 Returns concise summary text and structured metadata:
-- `details.images`: successful image entries (`data`, `mimeType`, `widthPx`, `heightPx`)
-- `details.failures`: per-resource failures (`index`, `resource`, `code`, `message`)
+- `details.drawIntents`: successful replay entries (currently image draw intents with payload + dimensions)
+- `details.report`: per-resource entries (`type`, `uri`, optional `error`)
 </output>
 
 <example name="single image">
@@ -28,11 +29,11 @@ Returns concise summary text and structured metadata:
 <example name="mixed batch">
 ```
 {
-  "type": "image",
+  "type": "color",
   "resources": [
-    "file:///absolute/path/to/ok.png",
-    "https://example.com/image.png",
-    "file:///absolute/path/to/missing.png"
+    "data:text/plain,%23FF0000",
+    "https://example.com/color.txt",
+    "data:text/plain,not-a-color"
   ],
   "options": {
     "title": "Screenshot set",
@@ -44,6 +45,6 @@ Returns concise summary text and structured metadata:
 
 <avoid>
 - Relative paths or plain filesystem paths
-- Non-`file:` schemes in v0
+- Embedding replay base64 payloads in summary text
 - Embedding base64 payloads in summary text
 </avoid>

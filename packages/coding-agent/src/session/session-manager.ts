@@ -26,10 +26,12 @@ import {
 	Snowflake,
 	toError,
 } from "@oh-my-pi/pi-utils";
+import { externalizeDisplayDetails, resolveDisplayDetails } from "../tools/display/index";
 import { ArtifactManager } from "./artifacts";
 import {
 	type BlobPutResult,
 	BlobStore,
+	DEFAULT_IMAGE_EXTERNALIZE_THRESHOLD,
 	externalizeImageData,
 	externalizeImageDataUrl,
 	isBlobRef,
@@ -619,7 +621,10 @@ export function buildSessionContext(
 		const providerPayload: ProviderPayload | undefined = (() => {
 			const candidate = compaction.preserveData?.openaiRemoteCompaction;
 			if (!candidate || typeof candidate !== "object") return undefined;
-			const remote = candidate as { provider?: unknown; replacementHistory?: unknown };
+			const remote = candidate as {
+				provider?: unknown;
+				replacementHistory?: unknown;
+			};
 			if (typeof remote.provider !== "string" || remote.provider.length === 0) return undefined;
 			if (!Array.isArray(remote.replacementHistory)) return undefined;
 			return {
@@ -824,6 +829,9 @@ async function resolveBlobRefsInEntries(entries: FileEntry[], blobStore: BlobSto
 		}
 
 		promises.push(resolvePersistedImageUrlRefs(entry, blobStore));
+		if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "display") {
+			promises.push(resolveDisplayDetails(blobStore, entry.message.details));
+		}
 	}
 
 	await Promise.all(promises);
@@ -962,7 +970,7 @@ function formatTimeAgo(date: Date): string {
 const MAX_PERSIST_CHARS = 500_000;
 const TRUNCATION_NOTICE = "\n\n[Session persistence truncated large content]";
 /** Minimum base64 length to externalize to blob store (skip tiny inline images) */
-const BLOB_EXTERNALIZE_THRESHOLD = 1024;
+const BLOB_EXTERNALIZE_THRESHOLD = DEFAULT_IMAGE_EXTERNALIZE_THRESHOLD;
 const TEXT_CONTENT_KEY = "content";
 
 /**
@@ -1092,6 +1100,15 @@ async function truncateForPersistence(obj: unknown, blobStore: BlobStore, key?: 
 }
 
 async function prepareEntryForPersistence(entry: FileEntry, blobStore: BlobStore): Promise<FileEntry> {
+	if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "display") {
+		entry = {
+			...entry,
+			message: {
+				...entry.message,
+				details: await externalizeDisplayDetails(blobStore, entry.message.details),
+			},
+		};
+	}
 	return truncateForPersistence(entry, blobStore);
 }
 
@@ -1270,7 +1287,13 @@ async function collectSessionsFromFiles(files: string[], storage: SessionStorage
 				if (entries.length === 0) return;
 
 				// Check first entry for valid session header
-				type SessionHeaderShape = { type: string; id: string; cwd?: string; title?: string; timestamp: string };
+				type SessionHeaderShape = {
+					type: string;
+					id: string;
+					cwd?: string;
+					title?: string;
+					timestamp: string;
+				};
 				const header = entries[0] as SessionHeaderShape;
 				if (header.type !== "session" || !header.id) return;
 
@@ -1280,7 +1303,11 @@ async function collectSessionsFromFiles(files: string[], storage: SessionStorage
 				let shortSummary: string | undefined;
 
 				for (let i = 1; i < entries.length; i++) {
-					const entry = entries[i] as { type?: string; message?: Message; shortSummary?: string };
+					const entry = entries[i] as {
+						type?: string;
+						message?: Message;
+						shortSummary?: string;
+					};
 
 					if (entry.type === "compaction" && typeof entry.shortSummary === "string") {
 						shortSummary = entry.shortSummary;
@@ -1674,7 +1701,14 @@ export class SessionManager {
 		this.#leafId = null;
 		this.#flushed = false;
 		this.#needsFullRewriteOnNextPersist = false;
-		this.#usageStatistics = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, premiumRequests: 0, cost: 0 };
+		this.#usageStatistics = {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			premiumRequests: 0,
+			cost: 0,
+		};
 
 		if (this.persist) {
 			const fileTimestamp = timestamp.replace(/[:.]/g, "-");
@@ -1688,7 +1722,14 @@ export class SessionManager {
 		this.#byId.clear();
 		this.#labelsById.clear();
 		this.#leafId = null;
-		this.#usageStatistics = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, premiumRequests: 0, cost: 0 };
+		this.#usageStatistics = {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			premiumRequests: 0,
+			cost: 0,
+		};
 		for (const entry of this.#fileEntries) {
 			if (entry.type === "session") continue;
 			this.#byId.set(entry.id, entry);
@@ -2193,23 +2234,6 @@ export class SessionManager {
 	// =========================================================================
 
 	/**
-	 * Append an MCP tool selection entry recording the discovery-selected MCP tools.
-	 * @param selectedToolNames MCP tool names selected for this branch
-	 * @returns Entry id
-	 */
-	appendMCPToolSelection(selectedToolNames: string[]): string {
-		const entry: MCPToolSelectionEntry = {
-			type: "mcp_tool_selection",
-			id: generateId(this.#byId),
-			parentId: this.#leafId,
-			timestamp: new Date().toISOString(),
-			selectedToolNames: [...selectedToolNames],
-		};
-		this.#appendEntry(entry);
-		return entry.id;
-	}
-
-	/**
 	 * Append a TTSR injection entry recording which rules were injected.
 	 * @param ruleNames Names of rules that were injected
 	 * @returns Entry id
@@ -2221,6 +2245,23 @@ export class SessionManager {
 			parentId: this.#leafId,
 			timestamp: new Date().toISOString(),
 			injectedRules: ruleNames,
+		};
+		this.#appendEntry(entry);
+		return entry.id;
+	}
+
+	/**
+	 * Append an MCP discovery selection entry recording the session branch selection.
+	 * @param toolNames MCP tool names selected for discovery-mode visibility
+	 * @returns Entry id
+	 */
+	appendMCPToolSelection(toolNames: string[]): string {
+		const entry: MCPToolSelectionEntry = {
+			type: "mcp_tool_selection",
+			id: generateId(this.#byId),
+			parentId: this.#leafId,
+			timestamp: new Date().toISOString(),
+			selectedToolNames: [...toolNames],
 		};
 		this.#appendEntry(entry);
 		return entry.id;

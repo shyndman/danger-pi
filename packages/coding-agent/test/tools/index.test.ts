@@ -44,7 +44,7 @@ function createDiscoverySessionHooks(): Partial<ToolSession> {
 
 describe("createTools", () => {
 	it("creates all builtin tools by default", async () => {
-		const session = createTestSession();
+		const session = createTestSession({ hasUI: true });
 		const tools = await createTools(session);
 		const names = tools.map(t => t.name);
 
@@ -64,6 +64,14 @@ describe("createTools", () => {
 		expect(names).toContain("web_search");
 		expect(names).toContain("display");
 		expect(names).toContain("exit_plan_mode");
+	});
+
+	it("excludes display tool when UI is unavailable", async () => {
+		const session = createTestSession({ hasUI: false });
+		const tools = await createTools(session);
+		const names = tools.map(t => t.name);
+
+		expect(names).not.toContain("display");
 	});
 
 	it("excludes display tool when disabled in settings", async () => {

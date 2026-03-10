@@ -19,6 +19,7 @@ import type { Theme } from "../../modes/theme/theme";
 import { theme } from "../../modes/theme/theme";
 import { computeEditDiff, computeHashlineDiff, computePatchDiff, type DiffError, type DiffResult } from "../../patch";
 import { BASH_DEFAULT_PREVIEW_LINES } from "../../tools/bash";
+import { isDisplayToolDetails } from "../../tools/display/index";
 import {
 	formatArgsInline,
 	JSON_TREE_MAX_DEPTH_COLLAPSED,
@@ -269,14 +270,23 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	/**
-	 * Get all image blocks from result content and details.images.
-	 * Some tools (like generate_image) store images in details to avoid bloating model context.
+	 * Get all image blocks from result content and tool-specific replay metadata.
+	 * Some tools store images in details to avoid bloating model context.
 	 */
 	#getAllImageBlocks(): Array<{ data?: string; mimeType?: string }> {
 		if (!this.#result) return [];
 		const contentImages = this.#result.content?.filter((c: any) => c.type === "image") || [];
-		const detailImages = this.#result.details?.images || [];
+		const detailImages =
+			this.#toolName === "display" ? this.#getDisplayIntentImages() : this.#result.details?.images || [];
 		return [...contentImages, ...detailImages];
+	}
+
+	#getDisplayIntentImages(): Array<{ data?: string; mimeType?: string }> {
+		const details = this.#result?.details;
+		if (!isDisplayToolDetails(details)) return [];
+		return (details.drawIntents ?? [])
+			.filter(intent => intent.kind === "image")
+			.map(intent => ({ data: intent.image.data, mimeType: intent.image.mimeType }));
 	}
 
 	/**

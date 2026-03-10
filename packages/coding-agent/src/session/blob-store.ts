@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { isEnoent, logger } from "@oh-my-pi/pi-utils";
 
 const BLOB_PREFIX = "blob:sha256:";
+export const DEFAULT_IMAGE_EXTERNALIZE_THRESHOLD = 1024;
 
 export interface BlobPutResult {
 	hash: string;
