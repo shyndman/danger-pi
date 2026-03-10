@@ -77,3 +77,18 @@ Rendering after tool execution SHALL use recorded draw intents and SHALL NOT re-
 #### Scenario: Redraw events use recorded data only
 - **WHEN** the UI redraws due to unrelated terminal/layout changes
 - **THEN** display output SHALL be reconstructed from recorded draw intents without new type execution
+
+### Requirement: Display image draw intents SHALL use threshold-based persistence
+Display image draw-intent payloads SHALL follow an inline-vs-blob decision point consistent with existing image persistence behavior.
+
+#### Scenario: Small payload remains inline
+- **WHEN** a display type records a successful image draw intent with payload below the configured externalization threshold
+- **THEN** persisted intent data SHALL remain inline
+
+#### Scenario: Large payload is externalized to blob ref
+- **WHEN** a display type records a successful image draw intent with payload at or above the configured externalization threshold
+- **THEN** persisted intent data SHALL reference `blob:sha256:<hash>`
+
+#### Scenario: Replay resolves blob-backed image payload
+- **WHEN** a session containing blob-backed display draw intents is restored
+- **THEN** replay rendering SHALL resolve blob references back to image payload data before rendering

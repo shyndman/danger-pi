@@ -2,11 +2,11 @@
 
 - [ ] 0.1 Re-read `openspec/changes/loosely-bound-display-types/design.md` and both capability specs before coding.
 - [ ] 0.2 Add named constants for display resolver limits (`30s`, `20MB`) in one display-specific module (no magic numbers).
-- [ ] 0.3 Decide and create the display module layout under `packages/coding-agent/src/tools/` (new display-specific files, minimal churn to existing files).
+- [ ] 0.3 Create a dedicated display directory at `packages/coding-agent/src/tools/display/` and define the module layout there (keep existing shared-file edits to integration touchpoints only).
 
 ## 1. Bootstrap and Type Registration
 
-- [ ] 1.1 Add `createDisplayTool(session)` in a display-specific module.
+- [ ] 1.1 Add `createDisplayTool(session)` in `packages/coding-agent/src/tools/display/`.
 - [ ] 1.2 Move display dependency wiring into `createDisplayTool(...)` (resolver, runtime recorder, registry).
 - [ ] 1.3 Register built-in display types (`image`, `color`) inside `createDisplayTool(...)`.
 - [ ] 1.4 Update `packages/coding-agent/src/tools/index.ts` so built-in `display` uses `createDisplayTool(...)` instead of direct constructor wiring.
@@ -33,6 +33,8 @@
 - [ ] 3.6 Implement report entry assembly logic for each processed resource occurrence.
 - [ ] 3.7 Success entries include `type` and `uri`.
 - [ ] 3.8 Failure entries include `type`, `uri`, and `error`.
+- [ ] 3.9 Implement threshold-based externalization for display image draw payloads (small inline, large as `blob:sha256:<hash>` refs).
+- [ ] 3.10 Ensure replay path resolves blob-backed draw payloads before rendering.
 
 ## 4. Type Definition Interfaces and Intent Documentation
 
@@ -40,6 +42,9 @@
 - [ ] 4.2 Add `<intent>` doc comments to `DisplayTypeDefinition` clarifying one type = one presentation path.
 - [ ] 4.3 Add `<intent>` comments to resolver types clarifying transport-only responsibilities.
 - [ ] 4.4 Ensure type definitions do not receive TUI state (`expanded`, viewport, etc.).
+- [ ] 4.5 Add `<intent>` comment on display result-details types clarifying details are replay metadata, not model-facing content.
+- [ ] 4.6 Add `<intent>` comment on persistence externalization hook clarifying threshold-based inline-vs-blob behavior for display draw payloads.
+- [ ] 4.7 Add `<intent>` comment on display renderer path clarifying replay-from-details and no re-execution on UI interactions.
 
 ## 5. Implement `image` Type on New Runtime Path
 
@@ -91,6 +96,8 @@
 - [ ] 10.4 Add color type tests for valid `#RRGGBB`, invalid short hex, malformed text, and mixed batches.
 - [ ] 10.5 Add display tool integration tests for per-resource report entry shapes.
 - [ ] 10.6 Add UI replay tests ensuring expand/collapse does not trigger re-resolution or type re-execution.
+- [ ] 10.7 Add persistence tests covering the decision point (small payload inline, large payload blob-ref) in saved sessions.
+- [ ] 10.8 Add restore tests confirming blob-backed display payloads render correctly after session reload.
 
 ## 11. Final Verification
 

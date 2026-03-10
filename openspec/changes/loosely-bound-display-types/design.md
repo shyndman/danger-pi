@@ -53,6 +53,23 @@ For this change, we want a junior engineer to be able to add new display types s
 **Alternatives considered:**
 - Keep constructor wiring inside `DisplayTool`: rejected (harder to test and reason about)
 
+### 1.1) Use a dedicated fork-local display directory
+
+**Decision:** Organize this feature in `packages/coding-agent/src/tools/display/` instead of expanding a single `display.ts` file.
+
+**Why:** This feature is fork-local and unlikely to upstream cleanly; isolating it in its own directory minimizes unrelated churn and keeps future fork-only experimentation contained.
+
+**Expected layout (v1):**
+- `display/index.ts` (tool entrypoint + exported factory)
+- `display/create-display-tool.ts` (bootstrap/registration wiring)
+- `display/resource-resolver.ts`
+- `display/runtime.ts`
+- `display/type-registry.ts`
+- `display/types/image.ts`
+- `display/types/color.ts`
+
+**Boundary note:** integration touchpoints remain in existing shared files (`tools/index.ts`, renderer wiring, settings/prompt/tests), but display internals should live under `tools/display/`.
+
 ### 2) Shared resolver is transport-focused and strict
 
 **Decision:** Resolver handles only URI/scheme retrieval and payload limits.
@@ -112,6 +129,12 @@ Display result details are presentation metadata for replay surfaces. They are i
 - Build report entries for tool result details
 - Throw call-level error only if all resources failed
 
+**Persistence rule for image draw intents:**
+- Use a decision point consistent with current session image persistence behavior.
+- Keep small payloads inline in details.
+- Externalize larger payloads using blob refs (`blob:sha256:<hash>`), via existing blob-store conventions in `packages/coding-agent/src/session/blob-store.ts`.
+- Keep report entries inline (`type`, `uri`, optional `error`) regardless of payload size.
+
 <intent>
 Persisted display draw payloads must follow threshold-based externalization so sessions remain bounded and restorable. This mirrors existing image persistence behavior rather than introducing an always-inline or always-blob special case.
 </intent>
@@ -154,7 +177,7 @@ Display renderer code must replay draw intents from display details only. UI int
 ## Risks / Trade-offs
 
 - **[Runtime detail payload size]** Large draw payloads can bloat session data  
-  → **Mitigation:** Keep 20MB limits and rely on existing blob externalization pipeline.
+  → **Mitigation:** Apply threshold-based inline-vs-blob externalization consistent with existing session image behavior.
 
 - **[Interface drift over time]** Future contributors may leak UI logic into type definitions  
   → **Mitigation:** Add `<intent>` doc comments on resolver/runtime/type interfaces.
@@ -193,4 +216,4 @@ Display renderer code must replay draw intents from display details only. UI int
 
 ## Open Questions
 
-- Should recorded draw intents store image bytes inline or by blob reference in details?
+- None currently blocking implementation.
