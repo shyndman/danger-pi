@@ -91,6 +91,10 @@ For this change, we want a junior engineer to be able to add new display types s
 
 **Key constraint:** Type definitions do not receive UI state (`expanded`, `collapsed`, viewport width, etc.).
 
+<intent>
+Display result details are presentation metadata for replay surfaces. They are intentionally not the same thing as model-facing message content. Keep heavy draw payloads in details, and avoid moving display payloads into `toolResult.content` unless model-visible behavior is explicitly desired.
+</intent>
+
 **Method shape guidance (conceptual):**
 1. Loop resources
 2. In `try` block, call `prepare(...)` (which throws on invalid)
@@ -108,6 +112,10 @@ For this change, we want a junior engineer to be able to add new display types s
 - Build report entries for tool result details
 - Throw call-level error only if all resources failed
 
+<intent>
+Persisted display draw payloads must follow threshold-based externalization so sessions remain bounded and restorable. This mirrors existing image persistence behavior rather than introducing an always-inline or always-blob special case.
+</intent>
+
 **Not runtime responsibilities:**
 - Rendering widgets
 - Reading UI state
@@ -122,6 +130,10 @@ For this change, we want a junior engineer to be able to add new display types s
 - Renderer only maps recorded draw intents to TUI image components.
 
 **Why this matters:** Prevents expensive and stateful re-execution tied to UI events.
+
+<intent>
+Display renderer code must replay draw intents from display details only. UI interactions (expand/collapse/redraw) must never trigger resolver or type execution again.
+</intent>
 
 ### 7) Tool availability in non-UI contexts
 
