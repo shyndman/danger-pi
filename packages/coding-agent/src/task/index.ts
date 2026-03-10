@@ -191,6 +191,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 	): Promise<AgentToolResult<TaskToolDetails>> {
 		const asyncEnabled = this.session.settings.get("async.enabled");
 		const selectedAgent = this.#discoveredAgents.find(agent => agent.name === params.agent);
+		const topLevelSessionId = this.session.getTopLevelSessionId?.() ?? this.session.getSessionId?.() ?? undefined;
 		if (!asyncEnabled || selectedAgent?.blocking === true) {
 			return this.#executeSync(_toolCallId, params, signal, onUpdate);
 		}
@@ -199,7 +200,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 		if (!manager) {
 			return {
 				content: [{ type: "text", text: "Async execution is enabled but no async job manager is available." }],
-				details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+				details: { projectAgentsDir: null, results: [], totalDurationMs: 0, topLevelSessionId },
 			};
 		}
 
@@ -249,6 +250,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 			projectAgentsDir: null,
 			results: [],
 			totalDurationMs: 0,
+			topLevelSessionId,
 			progress: getProgressSnapshot(),
 			async: { state, jobId, type: "task" },
 		});
@@ -392,7 +394,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 			const failureText = `Failed to start background task jobs: ${failedSchedules.join("; ")}`;
 			return {
 				content: [{ type: "text", text: failureText }],
-				details: { projectAgentsDir: null, results: [], totalDurationMs: 0 },
+				details: { projectAgentsDir: null, results: [], totalDurationMs: 0, topLevelSessionId },
 			};
 		}
 
@@ -417,6 +419,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 				projectAgentsDir: null,
 				results: [],
 				totalDurationMs: 0,
+				topLevelSessionId,
 				progress: getProgressSnapshot(),
 				async: { state: "running", jobId: startedJobs[0].jobId, type: "task" },
 			},
@@ -440,6 +443,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 		const commitStyle = this.session.settings.get("task.isolation.commits");
 		const maxConcurrency = this.session.settings.get("task.maxConcurrency");
 		const taskDepth = this.session.taskDepth ?? 0;
+		const topLevelSessionId = this.session.getTopLevelSessionId?.() ?? this.session.getSessionId?.() ?? undefined;
 
 		if (isolationMode === "none" && "isolated" in params) {
 			return {
@@ -651,6 +655,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 					projectAgentsDir,
 					results: [],
 					totalDurationMs: Date.now() - startTime,
+					topLevelSessionId,
 					progress,
 				},
 			});
@@ -761,6 +766,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 						thinkingLevel: thinkingLevelOverride,
 						outputSchema: effectiveOutputSchema,
 						sessionFile,
+						topLevelSessionId,
 						persistArtifacts: !!artifactsDir,
 						artifactsDir: effectiveArtifactsDir,
 						contextFile: contextFilePath,
@@ -815,6 +821,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 						thinkingLevel: thinkingLevelOverride,
 						outputSchema: effectiveOutputSchema,
 						sessionFile,
+						topLevelSessionId,
 						persistArtifacts: !!artifactsDir,
 						artifactsDir: effectiveArtifactsDir,
 						contextFile: contextFilePath,
@@ -1172,6 +1179,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 					projectAgentsDir,
 					results: results,
 					totalDurationMs: totalDuration,
+					topLevelSessionId,
 					usage: hasAggregatedUsage ? aggregatedUsage : undefined,
 					outputPaths,
 				},
@@ -1183,6 +1191,7 @@ export class TaskTool implements AgentTool<TaskSchema, TaskToolDetails, Theme> {
 					projectAgentsDir,
 					results: [],
 					totalDurationMs: Date.now() - startTime,
+					topLevelSessionId,
 				},
 			};
 		}

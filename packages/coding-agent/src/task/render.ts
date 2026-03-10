@@ -6,7 +6,7 @@
  */
 import path from "node:path";
 import type { Component } from "@oh-my-pi/pi-tui";
-import { Container, Text } from "@oh-my-pi/pi-tui";
+import { Container, TERMINAL, Text } from "@oh-my-pi/pi-tui";
 import { formatNumber } from "@oh-my-pi/pi-utils";
 import type { RenderResultOptions } from "../extensibility/custom-tools/types";
 import type { Theme } from "../modes/theme/theme";
@@ -99,6 +99,25 @@ function formatTaskId(id: string): string {
 	const indices = parsed.map(match => match![1]).join(".");
 	const labels = parsed.map(match => match![2]).join(">");
 	return `${indices} ${labels}`;
+}
+
+function formatAgentHyperlink(outputId: string, topLevelSessionId?: string): string {
+	const display = `agent://${outputId}`;
+	if (!TERMINAL.hyperlinks || !topLevelSessionId) {
+		return display;
+	}
+
+	const normalizedSessionId = topLevelSessionId.trim();
+	if (!normalizedSessionId) {
+		return display;
+	}
+
+	const target = `agent://${normalizedSessionId}/${outputId}`.replaceAll("\x1b", "").replaceAll("\x07", "");
+	if (!target) {
+		return display;
+	}
+
+	return `\x1b]8;;${target}\x07${display}\x1b]8;;\x07`;
 }
 
 const MISSING_SUBMIT_RESULT_WARNING_PREFIX = "SYSTEM WARNING: Subagent exited without calling submit_result tool";
@@ -494,6 +513,7 @@ function renderAgentProgress(
 	expanded: boolean,
 	theme: Theme,
 	spinnerFrame?: number,
+	topLevelSessionId?: string,
 ): string[] {
 	const lines: string[] = [];
 	const prefix = isLast ? theme.fg("dim", theme.tree.last) : theme.fg("dim", theme.tree.branch);
@@ -540,7 +560,9 @@ function renderAgentProgress(
 	}
 
 	lines.push(statusLine);
-	lines.push(`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", `agent://${progress.id}`)}`);
+	lines.push(
+		`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", formatAgentHyperlink(progress.id, topLevelSessionId))}`,
+	);
 
 	lines.push(...renderTaskSection(progress.assignment ?? progress.task, continuePrefix, expanded, theme));
 
@@ -727,7 +749,13 @@ function renderFindings(
 /**
  * Render final result for a single agent.
  */
-function renderAgentResult(result: SingleResult, isLast: boolean, expanded: boolean, theme: Theme): string[] {
+function renderAgentResult(
+	result: SingleResult,
+	isLast: boolean,
+	expanded: boolean,
+	theme: Theme,
+	topLevelSessionId?: string,
+): string[] {
 	const lines: string[] = [];
 	const prefix = isLast ? theme.fg("dim", theme.tree.last) : theme.fg("dim", theme.tree.branch);
 	const continuePrefix = isLast ? "   " : `${theme.fg("dim", theme.tree.vertical)}  `;
@@ -776,7 +804,9 @@ function renderAgentResult(result: SingleResult, isLast: boolean, expanded: bool
 	}
 
 	lines.push(statusLine);
-	lines.push(`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", `agent://${result.id}`)}`);
+	lines.push(
+		`${continuePrefix}${theme.tree.hook} ${theme.fg("muted", formatAgentHyperlink(result.id, topLevelSessionId))}`,
+	);
 
 	lines.push(...renderTaskSection(result.assignment ?? result.task, continuePrefix, expanded, theme));
 
@@ -920,12 +950,14 @@ export function renderResult(
 			if (shouldRenderProgress && details.progress) {
 				details.progress.forEach((progress, i) => {
 					const isLast = i === details.progress!.length - 1;
-					lines.push(...renderAgentProgress(progress, isLast, expanded, theme, spinnerFrame));
+					lines.push(
+						...renderAgentProgress(progress, isLast, expanded, theme, spinnerFrame, details.topLevelSessionId),
+					);
 				});
 			} else if (details.results && details.results.length > 0) {
 				details.results.forEach((res, i) => {
 					const isLast = i === details.results.length - 1;
-					lines.push(...renderAgentResult(res, isLast, expanded, theme));
+					lines.push(...renderAgentResult(res, isLast, expanded, theme, details.topLevelSessionId));
 				});
 
 				const abortedCount = details.results.filter(r => r.aborted).length;
@@ -1000,7 +1032,7 @@ function renderNestedTaskResults(detailsList: TaskToolDetails[], expanded: boole
 		if (!details.results || details.results.length === 0) continue;
 		details.results.forEach((result, index) => {
 			const isLast = index === details.results.length - 1;
-			lines.push(...renderAgentResult(result, isLast, expanded, theme));
+			lines.push(...renderAgentResult(result, isLast, expanded, theme, details.topLevelSessionId));
 		});
 	}
 	return lines;

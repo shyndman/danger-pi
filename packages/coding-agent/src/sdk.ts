@@ -206,6 +206,8 @@ export interface CreateAgentSessionOptions {
 	taskDepth?: number;
 	/** Parent task ID prefix for nested artifact naming (e.g., "6-Extensions") */
 	parentTaskPrefix?: string;
+	/** Top-level/root session ID for nested task propagation */
+	topLevelSessionId?: string;
 
 	/** Session manager. Default: session stored under the configured agentDir sessions root */
 	sessionManager?: SessionManager;
@@ -876,6 +878,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const searchDb = options.searchDb ?? new SearchDb(getSearchDbDir(agentDir));
 	const pendingActionStore = new PendingActionStore();
+	const topLevelSessionId = options.topLevelSessionId ?? sessionManager.getSessionId?.() ?? null;
 	const toolSession: ToolSession = {
 		cwd,
 		hasUI: options.hasUI ?? false,
@@ -892,6 +895,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		taskDepth: options.taskDepth ?? 0,
 		getSessionFile: () => sessionManager.getSessionFile() ?? null,
 		getSessionId: () => sessionManager.getSessionId?.() ?? null,
+		getTopLevelSessionId: () => topLevelSessionId,
 		getSessionSpawns: () => options.spawns ?? "*",
 		getModelString: () => (hasExplicitModel && model ? formatModelString(model) : undefined),
 		getActiveModelString: () => {

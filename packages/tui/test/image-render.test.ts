@@ -110,6 +110,8 @@ describe("terminal image rendering", () => {
 		expect(lines).toHaveLength(2);
 		expect(lines[1]).toContain("\x1b[1A");
 		expect(lines[1]).toContain("\x1b_G");
+		expect(lines[1]).toContain("\x1b[1B");
+		expect(lines[1].endsWith("\x1b[1B")).toBe(true);
 		expect(lines[1]).toContain("c=2");
 		expect(lines[1]).toContain("r=2");
 		expect(lines[1]).toContain("C=1");

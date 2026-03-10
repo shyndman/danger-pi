@@ -73,13 +73,14 @@ export class Image implements Component {
 
 			if (result) {
 				// Return `rows` lines so TUI accounts for image height.
-				// First (rows-1) lines are empty; last line emits move-up + image sequence.
+				// First (rows-1) lines are empty; last line emits move-up + image sequence + move-down.
 				lines = [];
 				for (let i = 0; i < result.rows - 1; i++) {
 					lines.push("");
 				}
 				const moveUp = result.rows > 1 ? `\x1b[${result.rows - 1}A` : "";
-				lines.push(moveUp + result.sequence);
+				const moveDown = result.rows > 1 ? `\x1b[${result.rows - 1}B` : "";
+				lines.push(moveUp + result.sequence + moveDown);
 			} else {
 				const fallback = imageFallback(this.#mimeType, this.#dimensions, this.#options.filename);
 				lines = [this.#theme.fallbackColor(fallback)];

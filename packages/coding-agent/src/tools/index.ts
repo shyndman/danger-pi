@@ -124,6 +124,8 @@ export interface ToolSession {
 	getSessionFile: () => string | null;
 	/** Get session ID */
 	getSessionId?: () => string | null;
+	/** Get top-level/root session ID for nested subagent flows */
+	getTopLevelSessionId?: () => string | null;
 	/** Get artifacts directory for artifact:// URLs */
 	getArtifactsDir?: () => string | null;
 	/** Allocate a new artifact path and ID for session-scoped truncated output. */

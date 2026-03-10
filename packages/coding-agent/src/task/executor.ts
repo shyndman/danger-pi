@@ -137,6 +137,7 @@ export interface ExecutorOptions {
 	signal?: AbortSignal;
 	onProgress?: (progress: AgentProgress) => void;
 	sessionFile?: string | null;
+	topLevelSessionId?: string;
 	persistArtifacts?: boolean;
 	artifactsDir?: string;
 	/** Path to parent conversation context file */
@@ -959,6 +960,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				toolNames,
 				outputSchema,
 				requireSubmitResultTool: true,
+				topLevelSessionId: options.topLevelSessionId,
 				contextFiles: options.contextFiles,
 				skills: options.skills,
 				promptTemplates: options.promptTemplates,
