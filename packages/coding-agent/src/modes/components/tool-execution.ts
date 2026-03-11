@@ -19,7 +19,6 @@ import type { Theme } from "../../modes/theme/theme";
 import { theme } from "../../modes/theme/theme";
 import { computeEditDiff, computeHashlineDiff, computePatchDiff, type DiffError, type DiffResult } from "../../patch";
 import { BASH_DEFAULT_PREVIEW_LINES } from "../../tools/bash";
-import { isDisplayToolDetails } from "../../tools/display/index";
 import {
 	formatArgsInline,
 	JSON_TREE_MAX_DEPTH_COLLAPSED,
@@ -38,9 +37,13 @@ import { renderStatusLine } from "../../tui";
 import { convertToPng } from "../../utils/image-convert";
 import { sanitizeWithOptionalSixelPassthrough } from "../../utils/sixel";
 import { renderDiff } from "./diff";
+import { getDisplayReplayImages } from "./display-replay-image";
 
 function ensureInvalidate(component: unknown): Component {
-	const c = component as { render: Component["render"]; invalidate?: () => void };
+	const c = component as {
+		render: Component["render"];
+		invalidate?: () => void;
+	};
 	if (!c.invalidate) {
 		c.invalidate = () => {};
 	}
@@ -66,7 +69,12 @@ export interface ToolExecutionHandle {
 	updateArgs(args: any, toolCallId?: string): void;
 	updateResult(
 		result: {
-			content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+			content: Array<{
+				type: string;
+				text?: string;
+				data?: string;
+				mimeType?: string;
+			}>;
 			details?: any;
 			isError?: boolean;
 		},
@@ -97,7 +105,12 @@ export class ToolExecutionComponent extends Container {
 	#ui: TUI;
 	#cwd: string;
 	#result?: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: Array<{
+			type: string;
+			text?: string;
+			data?: string;
+			mimeType?: string;
+		}>;
 		isError?: boolean;
 		details?: any;
 	};
@@ -250,7 +263,12 @@ export class ToolExecutionComponent extends Container {
 
 	updateResult(
 		result: {
-			content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+			content: Array<{
+				type: string;
+				text?: string;
+				data?: string;
+				mimeType?: string;
+			}>;
 			details?: any;
 			isError?: boolean;
 		},
@@ -273,20 +291,30 @@ export class ToolExecutionComponent extends Container {
 	 * Get all image blocks from result content and tool-specific replay metadata.
 	 * Some tools store images in details to avoid bloating model context.
 	 */
-	#getAllImageBlocks(): Array<{ data?: string; mimeType?: string }> {
+	#getAllImageBlocks(): Array<{
+		data?: string;
+		mimeType?: string;
+		dimensions?: { widthPx: number; heightPx: number };
+	}> {
 		if (!this.#result) return [];
-		const contentImages = this.#result.content?.filter((c: any) => c.type === "image") || [];
+		const contentImages =
+			this.#result.content
+				?.filter((c: any) => c.type === "image")
+				.map((image: any) => ({
+					data: image.data,
+					mimeType: image.mimeType,
+				})) || [];
 		const detailImages =
 			this.#toolName === "display" ? this.#getDisplayIntentImages() : this.#result.details?.images || [];
 		return [...contentImages, ...detailImages];
 	}
 
-	#getDisplayIntentImages(): Array<{ data?: string; mimeType?: string }> {
-		const details = this.#result?.details;
-		if (!isDisplayToolDetails(details)) return [];
-		return (details.drawIntents ?? [])
-			.filter(intent => intent.kind === "image")
-			.map(intent => ({ data: intent.image.data, mimeType: intent.image.mimeType }));
+	#getDisplayIntentImages(): Array<{
+		data?: string;
+		mimeType?: string;
+		dimensions?: { widthPx: number; heightPx: number };
+	}> {
+		return getDisplayReplayImages(this.#result?.details);
 	}
 
 	/**
@@ -405,7 +433,10 @@ export class ToolExecutionComponent extends Container {
 						this.#contentBox.addChild(ensureInvalidate(callComponent));
 					}
 				} catch (err) {
-					logger.warn("Tool renderer failed", { tool: this.#toolName, error: String(err) });
+					logger.warn("Tool renderer failed", {
+						tool: this.#toolName,
+						error: String(err),
+					});
 					// Fall back to default on error
 					this.#contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.#toolLabel)), 0, 0));
 				}
@@ -418,8 +449,16 @@ export class ToolExecutionComponent extends Container {
 			if (this.#result && tool.renderResult) {
 				try {
 					const renderResult = tool.renderResult as (
-						result: { content: Array<{ type: string; text?: string }>; details?: unknown; isError?: boolean },
-						options: { expanded: boolean; isPartial: boolean; spinnerFrame?: number },
+						result: {
+							content: Array<{ type: string; text?: string }>;
+							details?: unknown;
+							isError?: boolean;
+						},
+						options: {
+							expanded: boolean;
+							isPartial: boolean;
+							spinnerFrame?: number;
+						},
 						theme: Theme,
 						args?: unknown,
 					) => Component;
@@ -437,7 +476,10 @@ export class ToolExecutionComponent extends Container {
 						this.#contentBox.addChild(ensureInvalidate(resultComponent));
 					}
 				} catch (err) {
-					logger.warn("Tool renderer failed", { tool: this.#toolName, error: String(err) });
+					logger.warn("Tool renderer failed", {
+						tool: this.#toolName,
+						error: String(err),
+					});
 					// Fall back to showing raw output on error
 					const output = this.#getTextOutput();
 					if (output) {
@@ -467,7 +509,10 @@ export class ToolExecutionComponent extends Container {
 						this.#contentBox.addChild(ensureInvalidate(callComponent));
 					}
 				} catch (err) {
-					logger.warn("Tool renderer failed", { tool: this.#toolName, error: String(err) });
+					logger.warn("Tool renderer failed", {
+						tool: this.#toolName,
+						error: String(err),
+					});
 					// Fall back to default on error
 					this.#contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.#toolLabel)), 0, 0));
 				}
@@ -494,7 +539,10 @@ export class ToolExecutionComponent extends Container {
 						this.#contentBox.addChild(ensureInvalidate(resultComponent));
 					}
 				} catch (err) {
-					logger.warn("Tool renderer failed", { tool: this.#toolName, error: String(err) });
+					logger.warn("Tool renderer failed", {
+						tool: this.#toolName,
+						error: String(err),
+					});
 					// Fall back to showing raw output on error
 					const output = this.#getTextOutput();
 					if (output) {
@@ -542,6 +590,7 @@ export class ToolExecutionComponent extends Container {
 						imageMimeType,
 						{ fallbackColor: (s: string) => theme.fg("toolOutput", s) },
 						{ maxWidthCells: settings.get("tui.maxInlineImageColumns") },
+						img.dimensions,
 					);
 					this.#imageComponents.push(imageComponent);
 					this.addChild(imageComponent);
@@ -557,7 +606,10 @@ export class ToolExecutionComponent extends Container {
 		if (!this.#editDiffPreview || !("diff" in this.#editDiffPreview) || !this.#editDiffPreview.diff) {
 			return this.#args;
 		}
-		return { ...(this.#args as Record<string, unknown>), previewDiff: this.#editDiffPreview.diff };
+		return {
+			...(this.#args as Record<string, unknown>),
+			previewDiff: this.#editDiffPreview.diff,
+		};
 	}
 
 	/**
