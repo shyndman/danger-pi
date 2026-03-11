@@ -17,6 +17,8 @@ type MutableTerminalInfo = {
 const terminal = TERMINAL as unknown as MutableTerminalInfo;
 const BASE64_DUMMY = "AA==";
 const SQUARE_DIMENSIONS = { widthPx: 100, heightPx: 100 };
+const SMALL_SQUARE_DIMENSIONS = { widthPx: 20, heightPx: 20 };
+const WIDE_DIMENSIONS = { widthPx: 200, heightPx: 50 };
 const BASE64_ONE_PIXEL_PNG =
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
 
@@ -55,8 +57,8 @@ describe("terminal image rendering", () => {
 
 		expect(result).not.toBeNull();
 		expect(result?.rows).toBe(2);
-		expect(parseKittyParam(result?.sequence ?? "", "c")).toBe(2);
 		expect(parseKittyParam(result?.sequence ?? "", "r")).toBe(2);
+		expect(parseKittyParam(result?.sequence ?? "", "c")).toBeNull();
 		expect(parseKittyParam(result?.sequence ?? "", "C")).toBe(1);
 	});
 
@@ -67,7 +69,33 @@ describe("terminal image rendering", () => {
 		expect(result).not.toBeNull();
 		expect(result?.rows).toBe(10);
 		expect(parseKittyParam(result?.sequence ?? "", "c")).toBe(10);
-		expect(parseKittyParam(result?.sequence ?? "", "r")).toBe(10);
+		expect(parseKittyParam(result?.sequence ?? "", "r")).toBeNull();
+	});
+
+	it("does not upscale small Kitty images to caller caps", () => {
+		terminal.imageProtocol = ImageProtocol.Kitty;
+		const result = renderImage(BASE64_DUMMY, SMALL_SQUARE_DIMENSIONS, {
+			maxWidthCells: 60,
+			maxHeightCells: 60,
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.rows).toBe(2);
+		expect(parseKittyParam(result?.sequence ?? "", "c")).toBe(2);
+		expect(parseKittyParam(result?.sequence ?? "", "r")).toBeNull();
+	});
+
+	it("encodes only the constraining Kitty width when width is limiting", () => {
+		terminal.imageProtocol = ImageProtocol.Kitty;
+		const result = renderImage(BASE64_DUMMY, WIDE_DIMENSIONS, {
+			maxWidthCells: 6,
+			maxHeightCells: 10,
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.rows).toBe(2);
+		expect(parseKittyParam(result?.sequence ?? "", "c")).toBe(6);
+		expect(parseKittyParam(result?.sequence ?? "", "r")).toBeNull();
 	});
 
 	it("reduces iTerm2 width when max height is the limiting bound", () => {
@@ -112,8 +140,8 @@ describe("terminal image rendering", () => {
 		expect(lines[1]).toContain("\x1b_G");
 		expect(lines[1]).toContain("\x1b[1B");
 		expect(lines[1].endsWith("\x1b[1B")).toBe(true);
-		expect(lines[1]).toContain("c=2");
 		expect(lines[1]).toContain("r=2");
+		expect(lines[1]).not.toContain("c=2");
 		expect(lines[1]).toContain("C=1");
 	});
 });

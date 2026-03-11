@@ -303,32 +303,40 @@ export function calculateImageRows(
 	return Math.max(1, rows);
 }
 
+type ImageFit = {
+	columns: number;
+	rows: number;
+	constrainedAxis: "columns" | "rows";
+};
+
 function calculateImageFit(
 	imageDimensions: ImageDimensions,
 	options: ImageRenderOptions,
 	cellDims: CellDimensions,
-): { columns: number; rows: number } {
+): ImageFit {
 	const maxColumns = options.maxWidthCells !== undefined ? Math.max(1, Math.floor(options.maxWidthCells)) : undefined;
 	const maxRows = options.maxHeightCells !== undefined ? Math.max(1, Math.floor(options.maxHeightCells)) : undefined;
+	const nativeColumns = Math.max(1, Math.floor(imageDimensions.widthPx / cellDims.widthPx));
+	const nativeRows = Math.max(1, Math.floor(imageDimensions.heightPx / cellDims.heightPx));
+	const fittedMaxColumns = maxColumns !== undefined ? Math.min(maxColumns, nativeColumns) : nativeColumns;
+	const fittedMaxRows = maxRows !== undefined ? Math.min(maxRows, nativeRows) : nativeRows;
+	const widthScale = (fittedMaxColumns * cellDims.widthPx) / imageDimensions.widthPx;
+	const heightScale = (fittedMaxRows * cellDims.heightPx) / imageDimensions.heightPx;
 
-	if (maxColumns === undefined && maxRows === undefined) {
-		const columns = Math.max(1, Math.ceil(imageDimensions.widthPx / cellDims.widthPx));
-		const rows = Math.max(1, Math.ceil(imageDimensions.heightPx / cellDims.heightPx));
-		return { columns, rows };
+	if (widthScale <= heightScale) {
+		const rows = calculateImageRows(imageDimensions, fittedMaxColumns, cellDims);
+		return {
+			columns: fittedMaxColumns,
+			rows: maxRows !== undefined ? Math.min(rows, fittedMaxRows) : rows,
+			constrainedAxis: "columns",
+		};
 	}
 
-	const maxWidthPx = maxColumns !== undefined ? maxColumns * cellDims.widthPx : Number.POSITIVE_INFINITY;
-	const maxHeightPx = maxRows !== undefined ? maxRows * cellDims.heightPx : Number.POSITIVE_INFINITY;
-	const scale = Math.min(maxWidthPx / imageDimensions.widthPx, maxHeightPx / imageDimensions.heightPx);
-	const fittedWidthPx = imageDimensions.widthPx * scale;
-	const fittedHeightPx = imageDimensions.heightPx * scale;
-
-	const columns = Math.max(1, Math.floor(fittedWidthPx / cellDims.widthPx));
-	const rows = Math.max(1, Math.ceil(fittedHeightPx / cellDims.heightPx));
-
+	const fittedWidthPx = imageDimensions.widthPx * heightScale;
 	return {
-		columns: maxColumns !== undefined ? Math.min(columns, maxColumns) : columns,
-		rows: maxRows !== undefined ? Math.min(rows, maxRows) : rows,
+		columns: Math.max(1, Math.floor(fittedWidthPx / cellDims.widthPx)),
+		rows: fittedMaxRows,
+		constrainedAxis: "rows",
 	};
 }
 
@@ -486,10 +494,15 @@ export function renderImage(
 	const fit = calculateImageFit(imageDimensions, options, cellDims);
 
 	if (TERMINAL.imageProtocol === ImageProtocol.Kitty) {
-		const sequence = encodeKitty(base64Data, {
-			columns: fit.columns,
-			rows: fit.rows,
-		});
+		const preserveAspectRatio = options.preserveAspectRatio ?? true;
+		const sequence = encodeKitty(
+			base64Data,
+			preserveAspectRatio
+				? fit.constrainedAxis === "columns"
+					? { columns: fit.columns }
+					: { rows: fit.rows }
+				: { columns: fit.columns, rows: fit.rows },
+		);
 		return { sequence, rows: fit.rows };
 	}
 
