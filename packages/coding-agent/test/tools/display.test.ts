@@ -4,6 +4,11 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { type SettingPath, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools";
+import {
+	DISPLAY_COLOR_SWATCH_GAP_PX,
+	DISPLAY_COLOR_SWATCH_MAX_COLUMNS,
+	DISPLAY_COLOR_SWATCH_SIZE_PX,
+} from "@oh-my-pi/pi-coding-agent/tools/display/constants";
 import { createDisplayTool } from "@oh-my-pi/pi-coding-agent/tools/display/index";
 import { PhotonImage } from "@oh-my-pi/pi-natives";
 import { TempDir } from "@oh-my-pi/pi-utils";
@@ -212,7 +217,45 @@ describe("display tool", () => {
 		expect(drawIntent?.kind).toBe("image");
 		if (drawIntent?.kind === "image") {
 			expect(drawIntent.image.mimeType).toBe("image/png");
-			expect(drawIntent.image.widthPx).toBeGreaterThan(0);
+			expect(drawIntent.image.widthPx).toBe(DISPLAY_COLOR_SWATCH_SIZE_PX);
+			expect(drawIntent.image.heightPx).toBe(DISPLAY_COLOR_SWATCH_SIZE_PX);
+			await expect(
+				PhotonImage.parse(new Uint8Array(Buffer.from(drawIntent.image.data, "base64"))),
+			).resolves.toBeDefined();
+		}
+	});
+
+	it("multiple valid color resources render as one grid image with max 8 columns and 16px gaps", async () => {
+		const tool = createTool();
+		const resources = [
+			"data:text/plain,%23FF0000",
+			"data:text/plain,%2300FF00",
+			"data:text/plain,%230000FF",
+			"data:text/plain,%23FFFF00",
+			"data:text/plain,%23FF00FF",
+			"data:text/plain,%2300FFFF",
+			"data:text/plain,%23ABCDEF",
+			"data:text/plain,%23123456",
+			"data:text/plain,%23654321",
+			"data:text/plain,%230A0B0C",
+		];
+		const result = await tool.execute("call-12b", { type: "color", resources });
+		expect(result.details?.error).toBeUndefined();
+		expect(result.details?.report).toEqual(resources.map(uri => ({ type: "color", uri })));
+		expect(result.details?.drawIntents?.length).toBe(1);
+		expect(result.details?.summary).toEqual({ total: resources.length, succeeded: resources.length, failed: 0 });
+
+		const drawIntent = result.details?.drawIntents?.[0];
+		expect(drawIntent?.kind).toBe("image");
+		if (drawIntent?.kind === "image") {
+			const expectedColumns = DISPLAY_COLOR_SWATCH_MAX_COLUMNS;
+			const expectedRows = Math.ceil(resources.length / expectedColumns);
+			expect(drawIntent.image.widthPx).toBe(
+				expectedColumns * DISPLAY_COLOR_SWATCH_SIZE_PX + (expectedColumns - 1) * DISPLAY_COLOR_SWATCH_GAP_PX,
+			);
+			expect(drawIntent.image.heightPx).toBe(
+				expectedRows * DISPLAY_COLOR_SWATCH_SIZE_PX + (expectedRows - 1) * DISPLAY_COLOR_SWATCH_GAP_PX,
+			);
 			await expect(
 				PhotonImage.parse(new Uint8Array(Buffer.from(drawIntent.image.data, "base64"))),
 			).resolves.toBeDefined();

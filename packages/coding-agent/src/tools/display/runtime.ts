@@ -20,6 +20,7 @@ export interface ShowImageInput extends DisplayImagePayload {
  */
 export interface DisplayRuntime {
 	showImage(input: ShowImageInput): void;
+	reportSuccess(type: string, uri: string, index?: number): void;
 	reportFailure(type: string, uri: string, error: unknown, index?: number): void;
 	throwIfAllFailed(): void;
 	getDrawIntents(): DisplayDrawIntent[];
@@ -45,7 +46,11 @@ class RecordingDisplayRuntime implements DisplayRuntime {
 				heightPx: input.heightPx,
 			},
 		});
-		this.#reportEntries.set(input.index, { type: input.type, uri: input.uri });
+		this.reportSuccess(input.type, input.uri, input.index);
+	}
+
+	reportSuccess(type: string, uri: string, index = this.#reportEntries.size): void {
+		this.#reportEntries.set(index, { type, uri });
 	}
 
 	reportFailure(type: string, uri: string, error: unknown, index = this.#reportEntries.size): void {
@@ -71,10 +76,19 @@ class RecordingDisplayRuntime implements DisplayRuntime {
 	}
 
 	getSummary(): NonNullable<DisplayToolDetails["summary"]> {
+		let succeeded = 0;
+		let failed = 0;
+		for (const entry of this.#reportEntries.values()) {
+			if (entry.error) {
+				failed += 1;
+			} else {
+				succeeded += 1;
+			}
+		}
 		return {
 			total: this.resourceCount,
-			succeeded: this.#drawIntents.size,
-			failed: this.#reportEntries.size - this.#drawIntents.size,
+			succeeded,
+			failed,
 		};
 	}
 }

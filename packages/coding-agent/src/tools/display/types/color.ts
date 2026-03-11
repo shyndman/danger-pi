@@ -1,5 +1,9 @@
 import * as zlib from "node:zlib";
-import { DISPLAY_COLOR_SWATCH_SIZE_PX } from "../constants";
+import {
+	DISPLAY_COLOR_SWATCH_GAP_PX,
+	DISPLAY_COLOR_SWATCH_MAX_COLUMNS,
+	DISPLAY_COLOR_SWATCH_SIZE_PX,
+} from "../constants";
 import type { ResolvedDisplayResource } from "../contracts";
 import type { DisplayRuntime } from "../runtime";
 import type { DisplayTypeDefinition } from "../type-registry";
@@ -12,20 +16,38 @@ class ColorDisplayType implements DisplayTypeDefinition {
 	readonly type = "color";
 
 	async execute(resources: ResolvedDisplayResource[], runtime: DisplayRuntime): Promise<void> {
+		const validResources: Array<{ resource: ResolvedDisplayResource; color: string }> = [];
 		for (const resource of resources) {
 			try {
-				const color = parseCanonicalColor(resource);
-				runtime.showImage({
-					index: resource.index,
-					type: this.type,
-					uri: resource.uri,
-					data: renderColorSwatch(color),
-					mimeType: "image/png",
-					widthPx: DISPLAY_COLOR_SWATCH_SIZE_PX,
-					heightPx: DISPLAY_COLOR_SWATCH_SIZE_PX,
-				});
+				validResources.push({ resource, color: parseCanonicalColor(resource) });
 			} catch (error) {
 				runtime.reportFailure(this.type, resource.uri, error, resource.index);
+			}
+		}
+
+		if (validResources.length === 0) {
+			return;
+		}
+
+		try {
+			const rendered = renderColorSwatches(validResources.map(entry => entry.color));
+			const primary = validResources[0]!;
+			runtime.showImage({
+				index: primary.resource.index,
+				type: this.type,
+				uri: primary.resource.uri,
+				data: rendered.data,
+				mimeType: "image/png",
+				widthPx: rendered.widthPx,
+				heightPx: rendered.heightPx,
+			});
+			for (let i = 1; i < validResources.length; i += 1) {
+				const entry = validResources[i]!;
+				runtime.reportSuccess(this.type, entry.resource.uri, entry.resource.index);
+			}
+		} catch (error) {
+			for (const entry of validResources) {
+				runtime.reportFailure(this.type, entry.resource.uri, error, entry.resource.index);
 			}
 		}
 	}
@@ -46,10 +68,43 @@ function parseCanonicalColor(resource: ResolvedDisplayResource): string {
 	return value.toUpperCase();
 }
 
-function renderColorSwatch(color: string): string {
-	const rgb = parseHexColor(color);
-	const png = encodeSolidPng(DISPLAY_COLOR_SWATCH_SIZE_PX, DISPLAY_COLOR_SWATCH_SIZE_PX, rgb);
-	return Buffer.from(png).toString("base64");
+function renderColorSwatches(colors: string[]): { data: string; widthPx: number; heightPx: number } {
+	const palette = colors.map(parseHexColor);
+	const columns = Math.min(DISPLAY_COLOR_SWATCH_MAX_COLUMNS, palette.length);
+	const rows = Math.ceil(palette.length / columns);
+	const widthPx = columns * DISPLAY_COLOR_SWATCH_SIZE_PX + (columns - 1) * DISPLAY_COLOR_SWATCH_GAP_PX;
+	const heightPx = rows * DISPLAY_COLOR_SWATCH_SIZE_PX + (rows - 1) * DISPLAY_COLOR_SWATCH_GAP_PX;
+	const pixels = Buffer.alloc(widthPx * heightPx * 4);
+
+	for (const [index, color] of palette.entries()) {
+		const column = index % columns;
+		const row = Math.floor(index / columns);
+		paintSwatch(pixels, widthPx, row, column, color);
+	}
+
+	const png = encodeRgbaPng(widthPx, heightPx, pixels);
+	return { data: Buffer.from(png).toString("base64"), widthPx, heightPx };
+}
+
+function paintSwatch(
+	pixels: Buffer,
+	canvasWidthPx: number,
+	row: number,
+	column: number,
+	[r, g, b]: [number, number, number],
+): void {
+	const originY = row * (DISPLAY_COLOR_SWATCH_SIZE_PX + DISPLAY_COLOR_SWATCH_GAP_PX);
+	const originX = column * (DISPLAY_COLOR_SWATCH_SIZE_PX + DISPLAY_COLOR_SWATCH_GAP_PX);
+	for (let y = 0; y < DISPLAY_COLOR_SWATCH_SIZE_PX; y += 1) {
+		const scanlineStart = ((originY + y) * canvasWidthPx + originX) * 4;
+		for (let x = 0; x < DISPLAY_COLOR_SWATCH_SIZE_PX; x += 1) {
+			const offset = scanlineStart + x * 4;
+			pixels[offset] = r;
+			pixels[offset + 1] = g;
+			pixels[offset + 2] = b;
+			pixels[offset + 3] = 255;
+		}
+	}
 }
 
 function parseHexColor(color: string): [number, number, number] {
@@ -60,17 +115,13 @@ function parseHexColor(color: string): [number, number, number] {
 	];
 }
 
-function encodeSolidPng(width: number, height: number, [r, g, b]: [number, number, number]): Uint8Array {
-	const row = Buffer.alloc(1 + width * 4);
-	row[0] = 0;
-	for (let x = 0; x < width; x++) {
-		const offset = 1 + x * 4;
-		row[offset] = r;
-		row[offset + 1] = g;
-		row[offset + 2] = b;
-		row[offset + 3] = 255;
+function encodeRgbaPng(width: number, height: number, pixels: Buffer): Uint8Array {
+	const raw = Buffer.alloc(height * (1 + width * 4));
+	for (let y = 0; y < height; y += 1) {
+		const rowOffset = y * (1 + width * 4);
+		raw[rowOffset] = 0;
+		pixels.copy(raw, rowOffset + 1, y * width * 4, (y + 1) * width * 4);
 	}
-	const raw = Buffer.concat(Array.from({ length: height }, () => row));
 	const compressed = zlib.deflateSync(raw);
 	return Buffer.concat([
 		Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
