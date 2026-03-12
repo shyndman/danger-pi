@@ -855,12 +855,14 @@ export class InputController {
 		try {
 			const content = await Bun.file(skillPath).text();
 			const body = content.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
-			const metaLines = [`Skill: ${skillPath}`];
+			const skillName = commandName.slice("skill:".length);
+			// Skill commands inline the SKILL.md body into the prompt. Without an explicit note here,
+			// agents were re-reading the same SKILL.md from disk immediately after invocation.
+			const metaLines = [`Skill: ${skillPath}`, `Do not read SKILL.md for ${skillName}.`];
 			if (args) {
 				metaLines.push(`User: ${args}`);
 			}
 			const message = `${body}\n\n---\n\n${metaLines.join("\n")}`;
-			const skillName = commandName.slice("skill:".length);
 			const details: SkillPromptDetails = {
 				name: skillName || commandName,
 				path: skillPath,
