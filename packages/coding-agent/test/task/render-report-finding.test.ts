@@ -94,7 +94,7 @@ describe("taskToolRenderer report_finding safety", () => {
 			projectAgentsDir: null,
 			results: [],
 			totalDurationMs: 42,
-			topLevelSessionId: "top-session-123",
+			topLevelSessionId: "2026-03-13T11-16-53-228Z_top-session-123",
 			progress: [
 				{
 					index: 0,
@@ -119,7 +119,9 @@ describe("taskToolRenderer report_finding safety", () => {
 		);
 
 		const output = rendered.render(120).join("\n");
-		expect(output).toContain("\x1b]8;;agent://top-session-123/1-Reviewer\x07agent://1-Reviewer\x1b]8;;\x07");
+		expect(output).toContain(
+			"\x1b]8;;agent://2026-03-13T11-16-53-228Z_top-session-123/1-Reviewer\x07agent://1-Reviewer\x1b]8;;\x07",
+		);
 	});
 
 	it("renders final-result agent URI with top-level-session OSC8 target", async () => {
@@ -145,7 +147,7 @@ describe("taskToolRenderer report_finding safety", () => {
 				},
 			],
 			totalDurationMs: 42,
-			topLevelSessionId: "top-session-123",
+			topLevelSessionId: "2026-03-13T11-16-53-228Z_top-session-123",
 		};
 
 		const rendered = taskToolRenderer.renderResult(
@@ -155,7 +157,9 @@ describe("taskToolRenderer report_finding safety", () => {
 		);
 
 		const output = rendered.render(120).join("\n");
-		expect(output).toContain("\x1b]8;;agent://top-session-123/1-Reviewer\x07agent://1-Reviewer\x1b]8;;\x07");
+		expect(output).toContain(
+			"\x1b]8;;agent://2026-03-13T11-16-53-228Z_top-session-123/1-Reviewer\x07agent://1-Reviewer\x1b]8;;\x07",
+		);
 	});
 
 	it("falls back to plain agent URI when top-level session ID is missing", async () => {

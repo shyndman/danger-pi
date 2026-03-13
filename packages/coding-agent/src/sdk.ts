@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import {
 	Agent,
 	type AgentEvent,
@@ -286,6 +287,17 @@ export {
 
 function getDefaultAgentDir(): string {
 	return getAgentDir();
+}
+
+function getHyperlinkSessionToken(
+	sessionManager: Pick<SessionManager, "getSessionFile" | "getSessionId">,
+): string | null {
+	const sessionFile = sessionManager.getSessionFile?.();
+	if (sessionFile) {
+		return path.basename(sessionFile, ".jsonl");
+	}
+
+	return sessionManager.getSessionId?.() ?? null;
 }
 
 // Discovery Functions
@@ -917,7 +929,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const searchDb = options.searchDb ?? new SearchDb(getSearchDbDir(agentDir));
 	const pendingActionStore = new PendingActionStore();
-	const topLevelSessionId = options.topLevelSessionId ?? sessionManager.getSessionId?.() ?? null;
+	const topLevelSessionId = options.topLevelSessionId ?? getHyperlinkSessionToken(sessionManager);
 	const toolSession: ToolSession = {
 		cwd,
 		hasUI: options.hasUI ?? false,
