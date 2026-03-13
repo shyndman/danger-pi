@@ -70,7 +70,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-natives-${{ matrix.platform }}-${{ matrix.arch }}
-          path: packages/natives/native/pi_natives.${{ matrix.platform }}-${{ matrix.arch }}.node
+          path: packages/natives/native/pi_natives.${{ matrix.platform }}-${{ matrix.arch }}-modern.node
           if-no-files-found: error
 
   test:
@@ -132,11 +132,11 @@ jobs:
           echo "Native addons downloaded:"
           ls -la packages/natives/native/
           echo ""
-          echo "Expected platform: linux-x64"
-          if [ -f "packages/natives/native/pi_natives.linux-x64.node" ]; then
-            echo "✓ pi_natives.linux-x64.node"
+          echo "Expected platform: linux-x64-modern"
+          if [ -f "packages/natives/native/pi_natives.linux-x64-modern.node" ]; then
+            echo "✓ pi_natives.linux-x64-modern.node"
           else
-            echo "✗ pi_natives.linux-x64.node MISSING"
+            echo "✗ pi_natives.linux-x64-modern.node MISSING"
             exit 1
           fi
       - name: Build binaries
