@@ -929,7 +929,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	const searchDb = options.searchDb ?? new SearchDb(getSearchDbDir(agentDir));
 	const pendingActionStore = new PendingActionStore();
-	const topLevelSessionId = options.topLevelSessionId ?? getHyperlinkSessionToken(sessionManager);
 	const toolSession: ToolSession = {
 		cwd,
 		hasUI: options.hasUI ?? false,
@@ -946,7 +945,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		taskDepth: options.taskDepth ?? 0,
 		getSessionFile: () => sessionManager.getSessionFile() ?? null,
 		getSessionId: () => sessionManager.getSessionId?.() ?? null,
-		getTopLevelSessionId: () => topLevelSessionId,
+		getTopLevelSessionId: () => options.topLevelSessionId ?? getHyperlinkSessionToken(sessionManager),
 		getSessionSpawns: () => options.spawns ?? "*",
 		getModelString: () => (hasExplicitModel && model ? formatModelString(model) : undefined),
 		getActiveModelString: () => {

@@ -72,4 +72,36 @@ describe("createAgentSession top-level task session token", () => {
 
 		expect(getTaskToolTopLevelSessionId(session)).toBe(expectedToken);
 	});
+
+	it("tracks persisted session changes after newSession", async () => {
+		const sessionManager = SessionManager.create(tempDir, path.join(tempDir, "sessions"));
+		const { session } = await createAgentSession(buildSessionOptions(tempDir, sessionManager));
+		sessions.push(session);
+
+		const initialToken = getTaskToolTopLevelSessionId(session);
+		expect(initialToken).toBe(path.basename(sessionManager.getSessionFile()!, ".jsonl"));
+
+		await session.newSession();
+
+		const nextSessionFile = sessionManager.getSessionFile();
+		expect(nextSessionFile).toBeDefined();
+		const nextToken = path.basename(nextSessionFile!, ".jsonl");
+		expect(nextToken).not.toBe(initialToken);
+		expect(getTaskToolTopLevelSessionId(session)).toBe(nextToken);
+	});
+
+	it("preserves explicit top-level session id overrides across session changes", async () => {
+		const sessionManager = SessionManager.create(tempDir, path.join(tempDir, "sessions"));
+		const { session } = await createAgentSession({
+			...buildSessionOptions(tempDir, sessionManager),
+			topLevelSessionId: "explicit-root-session",
+		});
+		sessions.push(session);
+
+		expect(getTaskToolTopLevelSessionId(session)).toBe("explicit-root-session");
+
+		await session.newSession();
+
+		expect(getTaskToolTopLevelSessionId(session)).toBe("explicit-root-session");
+	});
 });
