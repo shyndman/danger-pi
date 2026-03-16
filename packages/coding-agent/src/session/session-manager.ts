@@ -826,11 +826,21 @@ async function resolveBlobRefsInEntries(entries: FileEntry[], blobStore: BlobSto
 					);
 				}
 			}
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				promises.push(resolveGenerateImageInputs(contentArray, blobStore));
+			}
 		}
 
 		promises.push(resolvePersistedImageUrlRefs(entry, blobStore));
 		if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "display") {
 			promises.push(resolveDisplayDetails(blobStore, entry.message.details));
+		}
+		if (
+			entry.type === "message" &&
+			entry.message.role === "toolResult" &&
+			entry.message.toolName === "generate_image"
+		) {
+			promises.push(resolveGenerateImageToolResult(entry.message.details, blobStore));
 		}
 	}
 
@@ -1003,6 +1013,136 @@ function isImageBlock(value: unknown): value is { type: "image"; data: string; m
 	);
 }
 
+interface GenerateImageResultImage {
+	data?: string;
+	mimeType?: string;
+}
+
+interface GenerateImageInputItem {
+	path?: string;
+	data?: string;
+	mime_type?: string;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isGenerateImageToolCallBlock(value: unknown): value is {
+	type: "toolCall";
+	name: string;
+	arguments: { input?: GenerateImageInputItem[] };
+} {
+	return (
+		isObjectRecord(value) &&
+		value.type === "toolCall" &&
+		value.name === "generate_image" &&
+		isObjectRecord(value.arguments)
+	);
+}
+
+async function externalizeGenerateImageInputs(
+	content: unknown[],
+	blobStore: BlobStore,
+): Promise<{ changed: boolean; content: unknown[] }> {
+	let changed = false;
+	const updatedContent = await Promise.all(
+		content.map(async block => {
+			if (!isGenerateImageToolCallBlock(block) || !Array.isArray(block.arguments.input)) {
+				return block;
+			}
+			let blockChanged = false;
+			const input = await Promise.all(
+				block.arguments.input.map(async item => {
+					if (!item.data || item.data.length === 0 || isBlobRef(item.data)) {
+						return item;
+					}
+					blockChanged = true;
+					return {
+						...item,
+						data: await externalizeImageData(blobStore, item.data),
+					};
+				}),
+			);
+			if (!blockChanged) {
+				return block;
+			}
+			changed = true;
+			return {
+				...block,
+				arguments: {
+					...block.arguments,
+					input,
+				},
+			};
+		}),
+	);
+	return { changed, content: updatedContent };
+}
+
+async function externalizeGenerateImageToolResult(
+	details: unknown,
+	blobStore: BlobStore,
+): Promise<{ changed: boolean; details: unknown }> {
+	if (!isObjectRecord(details) || !Array.isArray(details.images)) {
+		return { changed: false, details };
+	}
+	let changed = false;
+	const images = await Promise.all(
+		details.images.map(async image => {
+			if (
+				!isObjectRecord(image) ||
+				typeof image.data !== "string" ||
+				image.data.length === 0 ||
+				isBlobRef(image.data)
+			) {
+				return image;
+			}
+			changed = true;
+			return {
+				...image,
+				data: await externalizeImageData(blobStore, image.data),
+			} satisfies GenerateImageResultImage;
+		}),
+	);
+	return {
+		changed,
+		details: changed ? { ...details, images } : details,
+	};
+}
+
+async function resolveGenerateImageInputs(content: unknown[], blobStore: BlobStore): Promise<void> {
+	await Promise.all(
+		content.map(async block => {
+			if (!isGenerateImageToolCallBlock(block) || !Array.isArray(block.arguments.input)) {
+				return;
+			}
+			await Promise.all(
+				block.arguments.input.map(async item => {
+					if (typeof item.data !== "string" || !isBlobRef(item.data)) {
+						return;
+					}
+					item.data = await resolveImageData(blobStore, item.data);
+				}),
+			);
+		}),
+	);
+}
+
+async function resolveGenerateImageToolResult(details: unknown, blobStore: BlobStore): Promise<void> {
+	if (!isObjectRecord(details) || !Array.isArray(details.images)) {
+		return;
+	}
+	await Promise.all(
+		details.images.map(async image => {
+			if (!isObjectRecord(image) || typeof image.data !== "string" || !isBlobRef(image.data)) {
+				return;
+			}
+			image.data = await resolveImageData(blobStore, image.data);
+		}),
+	);
+}
+
 async function truncateForPersistence(obj: FileEntry, blobStore: BlobStore, key?: string): Promise<FileEntry>;
 async function truncateForPersistence(obj: string, blobStore: BlobStore, key?: string): Promise<string>;
 async function truncateForPersistence(obj: unknown[], blobStore: BlobStore, key?: string): Promise<unknown[]>;
@@ -1100,6 +1240,18 @@ async function truncateForPersistence(obj: unknown, blobStore: BlobStore, key?: 
 }
 
 async function prepareEntryForPersistence(entry: FileEntry, blobStore: BlobStore): Promise<FileEntry> {
+	if (entry.type === "message" && entry.message.role === "assistant" && Array.isArray(entry.message.content)) {
+		const externalized = await externalizeGenerateImageInputs(entry.message.content, blobStore);
+		if (externalized.changed) {
+			entry = {
+				...entry,
+				message: {
+					...entry.message,
+					content: externalized.content as typeof entry.message.content,
+				},
+			};
+		}
+	}
 	if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "display") {
 		entry = {
 			...entry,
@@ -1108,6 +1260,18 @@ async function prepareEntryForPersistence(entry: FileEntry, blobStore: BlobStore
 				details: await externalizeDisplayDetails(blobStore, entry.message.details),
 			},
 		};
+	}
+	if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "generate_image") {
+		const externalized = await externalizeGenerateImageToolResult(entry.message.details, blobStore);
+		if (externalized.changed) {
+			entry = {
+				...entry,
+				message: {
+					...entry.message,
+					details: externalized.details,
+				},
+			};
+		}
 	}
 	return truncateForPersistence(entry, blobStore);
 }
