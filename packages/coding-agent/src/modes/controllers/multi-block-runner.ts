@@ -311,7 +311,9 @@ async function executeCommandBlock(
 
 	const fileCommand = options.fileCommands.find(cmd => cmd.name === commandName);
 	if (fileCommand) {
-		const expanded = expandSlashCommand(commandText, options.fileCommands);
+		const expanded = await expandSlashCommand(commandText, options.fileCommands, {
+			cwd: options.ctx.sessionManager.getCwd(),
+		});
 		return { success: true, appendedText: expanded, contributesPromptContent: expanded.trim().length > 0 };
 	}
 

@@ -16,8 +16,11 @@ function createContext(overrides?: Partial<InteractiveModeContext>): Interactive
 			isCompacting: false,
 			fileCommands: [],
 		} as unknown as InteractiveModeContext["session"],
+		sessionManager: {
+			getCwd: () => process.cwd(),
+		} as unknown as InteractiveModeContext["sessionManager"],
 		fileSlashCommands: new Set<string>(),
-		skillCommands: new Map<string, string>(),
+		skillCommands: new Map<string, { filePath: string; isNative: boolean }>(),
 		editor,
 		showError: vi.fn(),
 		...overrides,
@@ -27,7 +30,7 @@ function createContext(overrides?: Partial<InteractiveModeContext>): Interactive
 describe("runMultiBlockSubmission", () => {
 	it("requests continue-from-context when final command follows rendered text", async () => {
 		const ctx = createContext({
-			skillCommands: new Map([["skill:demo", "/tmp/skill"]]),
+			skillCommands: new Map([["skill:demo", { filePath: "/tmp/skill", isNative: false }]]),
 		});
 		const handleTextBlock = vi.fn(async () => {});
 		const handleBashShortcut = vi.fn(async () => true);
@@ -68,7 +71,7 @@ describe("runMultiBlockSubmission", () => {
 				],
 			} as unknown as InteractiveModeContext["session"],
 			fileSlashCommands: new Set(["foo"]),
-			skillCommands: new Map([["skill:omega", "/tmp/skill"]]),
+			skillCommands: new Map([["skill:omega", { filePath: "/tmp/skill", isNative: false }]]),
 		});
 		const handleTextBlock = vi.fn(async () => {});
 		const handleBashShortcut = vi.fn(async () => true);

@@ -79,6 +79,7 @@ function createTestContext() {
 			sessionId: "test-session",
 		} as unknown as InteractiveModeContext["session"],
 		sessionManager: {
+			getCwd: () => process.cwd(),
 			getSessionName: () => "existing",
 			setSessionName: vi.fn(async () => {}),
 			getSessionDir: () => ".",
@@ -108,7 +109,7 @@ function createTestContext() {
 		isBackgrounded: false,
 		pendingBashMessages: [],
 		pendingPythonMessages: [],
-		skillCommands: new Map<string, string>(),
+		skillCommands: new Map<string, { filePath: string; isNative: boolean }>(),
 		startPendingSubmission,
 		showError,
 		showWarning: vi.fn(),
@@ -146,7 +147,7 @@ describe("InputController skill commands", () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-skill-command-"));
 		const skillPath = path.join(tempDir, "demo-skill", "SKILL.md");
 		await Bun.write(skillPath, "---\ndescription: Demo skill\n---\nSkill body contents");
-		ctx.skillCommands.set("skill:demo-skill", skillPath);
+		ctx.skillCommands.set("skill:demo-skill", { filePath: skillPath, isNative: false });
 
 		try {
 			const submission = "/skill:demo-skill with args";
@@ -165,6 +166,78 @@ describe("InputController skill commands", () => {
 			expect(message.content).toContain(`Skill: ${skillPath}`);
 			expect(message.content).toContain("Do not read SKILL.md for demo-skill.");
 			expect(options).toEqual(expect.objectContaining({ streamingBehavior: "followUp" }));
+		} finally {
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("interpolates native skill bodies before appending metadata lines", async () => {
+		const { ctx, editor, showError, promptCustomMessageMock } = createTestContext();
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-skill-command-"));
+		const skillPath = path.join(tempDir, "native-skill", "SKILL.md");
+		await Bun.write(skillPath, "---\ndescription: Demo skill\n---\nSkill body says !`printf body-output`");
+		ctx.sessionManager.getCwd = () => tempDir;
+		ctx.skillCommands.set("skill:native-skill", { filePath: skillPath, isNative: true });
+
+		try {
+			const submission = "/skill:native-skill !`false`";
+			editor.setText(submission);
+			await ctx.editor.onSubmit!(submission);
+
+			expect(showError).not.toHaveBeenCalled();
+			const [message] = promptCustomMessageMock.mock.calls[0]!;
+			expect(message.content).toContain("Skill body says body-output");
+			expect(message.content).toContain("User: !`false`");
+		} finally {
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps native skill frontmatter literal by expanding only the parsed body", async () => {
+		const { ctx, editor, showError, promptCustomMessageMock } = createTestContext();
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-skill-command-"));
+		const skillPath = path.join(tempDir, "frontmatter-skill", "SKILL.md");
+		await Bun.write(skillPath, '---\ndescription: "!`false`"\n---\nLiteral body');
+		ctx.sessionManager.getCwd = () => tempDir;
+		ctx.skillCommands.set("skill:frontmatter-skill", { filePath: skillPath, isNative: true });
+
+		try {
+			const submission = "/skill:frontmatter-skill";
+			editor.setText(submission);
+			await ctx.editor.onSubmit!(submission);
+
+			expect(showError).not.toHaveBeenCalled();
+			const [message] = promptCustomMessageMock.mock.calls[0]!;
+			expect(message.content).toContain("Literal body");
+		} finally {
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves non-native skill bodies literal even when they contain shell syntax", async () => {
+		const { ctx, editor, showError, promptCustomMessageMock } = createTestContext();
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-skill-command-"));
+		const skillPath = path.join(tempDir, "imported-skill", "SKILL.md");
+		await Bun.write(skillPath, "---\ndescription: Demo skill\n---\nLiteral !`false`");
+		ctx.skillCommands.set("skill:imported-skill", { filePath: skillPath, isNative: false });
+
+		try {
+			const submission = "/skill:imported-skill";
+			editor.setText(submission);
+			await ctx.editor.onSubmit!(submission);
+
+			expect(showError).not.toHaveBeenCalled();
+			const [message] = promptCustomMessageMock.mock.calls[0]!;
+			expect(message.content).toContain("Literal !`false`");
 		} finally {
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}

@@ -1,0 +1,65 @@
+import { describe, expect, it } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { expandSlashCommand, type FileSlashCommand, loadSlashCommands } from "../src/extensibility/slash-commands";
+
+function createCommand(overrides: Partial<FileSlashCommand> = {}): FileSlashCommand {
+	return {
+		name: "demo",
+		description: "Demo command",
+		content: "",
+		source: "test",
+		...overrides,
+	};
+}
+
+describe("native slash command shell interpolation", () => {
+	it("executes Handlebars-generated shell expressions only after render", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-slash-shell-"));
+		try {
+			const nativeCommand = createCommand({
+				content: "{{#if (lookup args 0)}}!`printf rendered`{{else}}fallback{{/if}}",
+				_source: { provider: "native", providerName: "OMP", path: "/tmp/demo.md", level: "project" },
+			});
+
+			expect(await expandSlashCommand("/demo yes", [nativeCommand], { cwd })).toBe("rendered");
+			expect(await expandSlashCommand("/demo", [nativeCommand], { cwd })).toBe("fallback");
+		} finally {
+			await fs.rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves non-native command sources literal even when they contain shell syntax", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-slash-shell-"));
+		try {
+			const importedCommand = createCommand({
+				content: "Literal !`false`",
+				_source: { provider: "claude", providerName: "Claude", path: "/tmp/demo.md", level: "project" },
+			});
+
+			expect(await expandSlashCommand("/demo", [importedCommand], { cwd })).toBe("Literal !`false`");
+		} finally {
+			await fs.rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps command frontmatter literal by expanding only the parsed body", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-slash-shell-"));
+		try {
+			const commandsDir = path.join(cwd, ".omp", "commands");
+			await fs.mkdir(commandsDir, { recursive: true });
+			await Bun.write(
+				path.join(commandsDir, "frontmatter.md"),
+				'---\ndescription: "!`false`"\n---\nBody stays literal',
+			);
+
+			const commands = await loadSlashCommands({ cwd });
+			const frontmatterCommand = commands.find(command => command.name === "frontmatter");
+			expect(frontmatterCommand).toBeDefined();
+			expect(await expandSlashCommand("/frontmatter", [frontmatterCommand!], { cwd })).toBe("Body stays literal");
+		} finally {
+			await fs.rm(cwd, { recursive: true, force: true });
+		}
+	});
+});

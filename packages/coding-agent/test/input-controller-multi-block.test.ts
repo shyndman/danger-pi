@@ -74,6 +74,7 @@ function createTestContext() {
 			sessionId: "test-session",
 		} as unknown as InteractiveModeContext["session"],
 		sessionManager: {
+			getCwd: () => process.cwd(),
 			getSessionName: () => "existing",
 			setSessionName: vi.fn(async () => {}),
 			getSessionDir: () => ".",
@@ -103,7 +104,7 @@ function createTestContext() {
 		isBackgrounded: false,
 		pendingBashMessages: [],
 		pendingPythonMessages: [],
-		skillCommands: new Map<string, string>(),
+		skillCommands: new Map<string, { filePath: string; isNative: boolean }>(),
 		startPendingSubmission,
 		showError,
 		showWarning,
