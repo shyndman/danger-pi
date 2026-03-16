@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 UTILS_PACKAGE_JSON="$REPO_ROOT/packages/utils/package.json"
-DIST_BINARY="$REPO_ROOT/packages/coding-agent/dist/omp"
+OMP_DIST_BINARY="$REPO_ROOT/packages/coding-agent/dist/omp"
+VIEWER_DIST_BINARY="$REPO_ROOT/packages/agent-session-viewer/dist/agent-session-viewer"
 INSTALL_DIR="${PI_INSTALL_DIR:-$HOME/.local/bin}"
 
 case "$(uname -s)" in
@@ -93,7 +94,8 @@ if (!file) throw new Error("UTILS_PACKAGE_JSON not set");
 const packageJson = await Bun.file(file).json() as Record<string, unknown>;
 const version = String(packageJson.version ?? "");
 if (!version) throw new Error("packages/utils/package.json missing version");
-const baseVersion = version.split("+")[0];
+const buildStrippedVersion = version.split("+")[0];
+const baseVersion = buildStrippedVersion.split("-local.")[0];
 
 const suffix = Bun.env.LOCAL_SUFFIX;
 packageJson.version = `${baseVersion}+${suffix}`;
@@ -104,14 +106,20 @@ await Bun.write(file, `${JSON.stringify(packageJson, null, "\t")}\n`);
 ensure_native_addons
 
 
-echo "Building binary"
+echo "Building binaries"
 (
 	cd "$REPO_ROOT"
 	bun --cwd=packages/coding-agent run build:binary
+	bun --cwd=packages/agent-session-viewer run build:binary
 )
 
-if [ ! -f "$DIST_BINARY" ]; then
-	echo "Built binary not found: $DIST_BINARY" >&2
+if [ ! -f "$OMP_DIST_BINARY" ]; then
+	echo "Built binary not found: $OMP_DIST_BINARY" >&2
+	exit 1
+fi
+
+if [ ! -f "$VIEWER_DIST_BINARY" ]; then
+	echo "Built binary not found: $VIEWER_DIST_BINARY" >&2
 	exit 1
 fi
 collect_native_addons
@@ -123,13 +131,16 @@ if [ "${#NATIVE_ADDON_FILES[@]}" -eq 0 ]; then
 	exit 1
 fi
 mkdir -p "$INSTALL_DIR"
-install_file_atomic "$DIST_BINARY" "$INSTALL_DIR/omp"
+install_file_atomic "$OMP_DIST_BINARY" "$INSTALL_DIR/omp"
 chmod +x "$INSTALL_DIR/omp"
+install_file_atomic "$VIEWER_DIST_BINARY" "$INSTALL_DIR/agent-session-viewer"
+chmod +x "$INSTALL_DIR/agent-session-viewer"
 for addon in "${NATIVE_ADDON_FILES[@]}"; do
 	install_file_atomic "$addon" "$INSTALL_DIR/$(basename "$addon")"
 done
 
 echo "Installed binary: $INSTALL_DIR/omp"
+echo "Installed binary: $INSTALL_DIR/agent-session-viewer"
 for addon in "${NATIVE_ADDON_FILES[@]}"; do
 	echo "Installed native addon: $INSTALL_DIR/$(basename "$addon")"
 done

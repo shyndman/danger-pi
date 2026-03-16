@@ -26,6 +26,7 @@
 		"agent-session-viewer": "src/cli.ts"
 	},
 	"scripts": {
+		"build:binary": "cd ../.. && bun build --compile --define PI_COMPILED=true --root . ./packages/agent-session-viewer/src/cli.ts --outfile packages/agent-session-viewer/dist/agent-session-viewer",
 		"check": "tsgo -p tsconfig.json",
 		"test": "bun test test/*.test.ts"
 	},
