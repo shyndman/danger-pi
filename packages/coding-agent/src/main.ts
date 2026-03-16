@@ -35,18 +35,24 @@ import { resolveResumableSession, type SessionInfo, SessionManager } from "./ses
 import { resolvePromptInput } from "./system-prompt";
 import { getChangelogPath, getNewEntries, parseChangelog } from "./utils/changelog";
 
+function normalizeVersionForUpdateComparison(version: string): string {
+	const buildStrippedVersion = version.split("+")[0];
+	return buildStrippedVersion.replace(/-local(?:[.-].*)?$/, "");
+}
+
 async function checkForNewVersion(currentVersion: string): Promise<string | undefined> {
 	if (!settings.get("startup.checkUpdate")) {
 		return;
 	}
 	try {
+		const normalizedCurrentVersion = normalizeVersionForUpdateComparison(currentVersion);
 		const response = await fetch("https://registry.npmjs.org/@oh-my-pi/pi-coding-agent/latest");
 		if (!response.ok) return undefined;
 
 		const data = (await response.json()) as { version?: string };
 		const latestVersion = data.version;
 
-		if (latestVersion && Bun.semver.order(latestVersion, currentVersion) > 0) {
+		if (latestVersion && Bun.semver.order(latestVersion, normalizedCurrentVersion) > 0) {
 			return latestVersion;
 		}
 
@@ -74,7 +80,9 @@ export interface InteractiveModeNotify {
 
 export async function submitInteractiveInput(
 	mode: Pick<InteractiveMode, "markPendingSubmissionStarted" | "finishPendingSubmission" | "showError">,
-	session: Pick<AgentSession, "prompt"> & { continueFromContext?: () => Promise<void> },
+	session: Pick<AgentSession, "prompt"> & {
+		continueFromContext?: () => Promise<void>;
+	},
 	input: SubmittedUserInput,
 ): Promise<void> {
 	if (input.cancelled) {

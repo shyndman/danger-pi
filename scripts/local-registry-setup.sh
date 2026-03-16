@@ -190,14 +190,23 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+normalize_fork_local_base_version() {
+	local version=$1
+	version=${version%%+*}
+	if [[ "$version" =~ ^(.+)-local([.-].*)?$ ]]; then
+		printf '%s\n' "${BASH_REMATCH[1]}"
+	else
+		printf '%s\n' "$version"
+	fi
+}
+
 parse_package_metadata() {
 	local pkg_dir pkg_json pkg_name pkg_version base_version new_version
 	for pkg_dir in "${PACKAGES[@]}"; do
 		pkg_json="$ROOT_DIR/packages/$pkg_dir/package.json"
 		pkg_name=$(bun -e 'const args = process.argv.slice(1); const [path] = args; if (!path) process.exit(1); const pkg = JSON.parse(await Bun.file(path).text()); console.log(pkg.name);' "$pkg_json")
 		pkg_version=$(bun -e 'const args = process.argv.slice(1); const [path] = args; if (!path) process.exit(1); const pkg = JSON.parse(await Bun.file(path).text()); console.log(pkg.version);' "$pkg_json")
-		base_version=${pkg_version%%+*}
-		base_version=${base_version%%-local.*}
+		base_version=$(normalize_fork_local_base_version "$pkg_version")
 		new_version="${base_version}-${LOCAL_BUILD_ID}"
 		PACKAGE_NAME_BY_DIR["$pkg_dir"]="$pkg_name"
 		PACKAGE_NEW_VERSION["$pkg_name"]="$new_version"
