@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { reset as resetCapabilities } from "@oh-my-pi/pi-coding-agent/capability";
 import { type Skill as CapabilitySkill, skillCapability } from "@oh-my-pi/pi-coding-agent/capability/skill";
 import { getCapability } from "@oh-my-pi/pi-coding-agent/discovery";
 import { loadSkills, loadSkillsFromDir, type Skill } from "@oh-my-pi/pi-coding-agent/extensibility/skills";
@@ -375,6 +376,74 @@ description: Skill loaded from a tilde-expanded custom directory.
 				customDirectories: [fixturesDir],
 			});
 			expect(withEmpty.length).toBe(withoutOption.length);
+		});
+
+		it("should reload edited skill markdown after a capability cache reset", async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-skill-reload-"));
+			const skillDir = path.join(tempDir, "reloadable-skill");
+			const skillPath = path.join(skillDir, "SKILL.md");
+			await fs.mkdir(skillDir, { recursive: true });
+			await Bun.write(skillPath, "---\nname: reloadable-skill\ndescription: Old description\n---\nOld body\n");
+
+			try {
+				const initial = await loadSkills({
+					enableCodexUser: false,
+					enableClaudeUser: false,
+					enableClaudeProject: false,
+					enablePiUser: false,
+					enablePiProject: false,
+					customDirectories: [tempDir],
+				});
+				expect(initial.skills).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							name: "reloadable-skill",
+							description: "Old description",
+						}),
+					]),
+				);
+
+				await Bun.write(skillPath, "---\nname: reloadable-skill\ndescription: New description\n---\nNew body\n");
+
+				const stale = await loadSkills({
+					enableCodexUser: false,
+					enableClaudeUser: false,
+					enableClaudeProject: false,
+					enablePiUser: false,
+					enablePiProject: false,
+					customDirectories: [tempDir],
+				});
+				expect(stale.skills).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							name: "reloadable-skill",
+							description: "Old description",
+						}),
+					]),
+				);
+
+				resetCapabilities();
+
+				const refreshed = await loadSkills({
+					enableCodexUser: false,
+					enableClaudeUser: false,
+					enableClaudeProject: false,
+					enablePiUser: false,
+					enablePiProject: false,
+					customDirectories: [tempDir],
+				});
+				expect(refreshed.skills).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							name: "reloadable-skill",
+							description: "New description",
+						}),
+					]),
+				);
+			} finally {
+				resetCapabilities();
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
 		});
 	});
 

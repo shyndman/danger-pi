@@ -9,6 +9,7 @@ import type { Component, SlashCommand } from "@oh-my-pi/pi-tui";
 import { Container, Loader, Markdown, ProcessTerminal, Spacer, Text, TUI, visibleWidth } from "@oh-my-pi/pi-tui";
 import { APP_NAME, hsvToRgb, isEnoent, logger, postmortem } from "@oh-my-pi/pi-utils";
 import chalk from "chalk";
+import { reset as resetCapabilities } from "../capability";
 import { KeybindingsManager } from "../config/keybindings";
 import { renderPromptTemplate } from "../config/prompt-templates";
 import { type Settings, settings } from "../config/settings";
@@ -440,6 +441,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	/** Refresh slash-command and skill runtime state from current discovery sources. */
 	async refreshRuntimeCommandState(cwd?: string): Promise<void> {
 		const basePath = cwd ?? this.sessionManager.getCwd();
+		resetCapabilities();
 		await this.#refreshSkillCommandState(basePath);
 		await this.refreshSlashCommandState(basePath);
 	}

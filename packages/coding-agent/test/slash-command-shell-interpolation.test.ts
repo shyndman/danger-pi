@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { reset as resetCapabilities } from "../src/capability";
 import { expandSlashCommand, type FileSlashCommand, loadSlashCommands } from "../src/extensibility/slash-commands";
 
 function createCommand(overrides: Partial<FileSlashCommand> = {}): FileSlashCommand {
@@ -59,6 +60,33 @@ describe("native slash command shell interpolation", () => {
 			expect(frontmatterCommand).toBeDefined();
 			expect(await expandSlashCommand("/frontmatter", [frontmatterCommand!], { cwd })).toBe("Body stays literal");
 		} finally {
+			resetCapabilities();
+			await fs.rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("reloads edited markdown command content after a capability cache reset", async () => {
+		const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "omp-slash-reload-"));
+		try {
+			const commandsDir = path.join(cwd, ".omp", "commands");
+			const commandPath = path.join(commandsDir, "reloadable.md");
+			await fs.mkdir(commandsDir, { recursive: true });
+			await Bun.write(commandPath, "---\ndescription: Old description\n---\nOld body");
+
+			const initial = (await loadSlashCommands({ cwd })).find(command => command.name === "reloadable");
+			expect(initial).toEqual(expect.objectContaining({ description: "Old description", content: "Old body" }));
+
+			await Bun.write(commandPath, "---\ndescription: New description\n---\nNew body");
+
+			const stale = (await loadSlashCommands({ cwd })).find(command => command.name === "reloadable");
+			expect(stale).toEqual(expect.objectContaining({ description: "Old description", content: "Old body" }));
+
+			resetCapabilities();
+
+			const refreshed = (await loadSlashCommands({ cwd })).find(command => command.name === "reloadable");
+			expect(refreshed).toEqual(expect.objectContaining({ description: "New description", content: "New body" }));
+		} finally {
+			resetCapabilities();
 			await fs.rm(cwd, { recursive: true, force: true });
 		}
 	});
