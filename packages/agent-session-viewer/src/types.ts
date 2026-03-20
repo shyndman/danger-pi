@@ -2,6 +2,8 @@ import type { SessionEntry, SessionHeader } from "@oh-my-pi/pi-coding-agent";
 
 export type PersistedFileEntry = SessionEntry | SessionHeader;
 
+export type ViewerToolArgs = Record<string, unknown>;
+
 export interface ViewerTextContent {
 	type: "text";
 	text: string;
@@ -29,7 +31,8 @@ export interface HeaderState {
 
 export interface ToolCallMetadata {
 	toolName: string;
-	argsLine?: string;
+	intent?: string;
+	displayArgs?: ViewerToolArgs;
 }
 
 export interface UserRow {
@@ -47,7 +50,8 @@ export interface ToolRow {
 	phase: "call" | "result";
 	toolCallId?: string;
 	toolName: string;
-	argsLine?: string;
+	intent?: string;
+	displayArgs?: ViewerToolArgs;
 	isError?: boolean;
 	content: ViewerContent[];
 }

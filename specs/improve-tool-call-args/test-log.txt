@@ -1,0 +1,8 @@
+$ (cd /home/shyndman/dev/projects/danger-pi/packages/agent-session-viewer && bun test test/*.test.ts)
+
+bun test v1.3.10 (30e609e0)
+
+ 17 pass
+ 0 fail
+ 59 expect() calls
+Ran 17 tests across 5 files. [1126.00ms]

@@ -11,20 +11,24 @@ beforeAll(async () => {
 });
 
 describe("tool row rendering", () => {
-	it("keeps args on one logical line and preserves persisted tool names", async () => {
+	it("renders structured tool-call args and preserves persisted tool names", async () => {
 		const rows: ViewerRow[] = [
 			{
 				kind: "tool",
 				phase: "call",
 				toolName: "generate_image",
-				argsLine: JSON.stringify({ aspect_ratio: "16:9", image_size: "1536x1024" }),
+				intent: "Creating banner",
+				displayArgs: { aspect_ratio: "16:9", image_size: "1536x1024" },
 				content: [],
 			},
 		];
 		const output = (await renderRows(rows, theme, 80)).join("\n");
 		expect(output).toContain("generate_image");
-		expect(output).toContain('"aspect_ratio":"16:9"');
-		expect(output).toContain('"image_size":"1536x1024"');
+		expect(output).toContain("Creating banner");
+		expect(output).toContain("aspect_ratio");
+		expect(output).toContain("16:9");
+		expect(output).toContain("image_size");
+		expect(output).toContain("1536x1024");
 	});
 
 	it("renders multiline structured output and dim no-output markers", async () => {
@@ -62,7 +66,7 @@ describe("tool row rendering", () => {
 				kind: "tool",
 				phase: "call",
 				toolName: "read",
-				argsLine: JSON.stringify({ long_argument_name: "this is a long wrapped argument payload" }),
+				displayArgs: { long_argument_name: "this is a long wrapped argument payload" },
 				content: [],
 			},
 			{

@@ -8,6 +8,7 @@ import type {
 	ViewerContent,
 	ViewerRow,
 	ViewerTextContent,
+	ViewerToolArgs,
 } from "./types";
 
 interface PersistedMessage {
@@ -25,6 +26,7 @@ interface PersistedToolCallBlock {
 	type?: string;
 	id?: string;
 	name?: string;
+	intent?: string;
 	arguments?: Record<string, unknown>;
 }
 
@@ -49,6 +51,8 @@ interface GenerateImageDetails {
 	images?: Array<{ data?: string; mimeType?: string }>;
 }
 
+const TOOL_CALL_INTENT_FIELD = "_i";
+
 function asMessage(entry: PersistedFileEntry): PersistedMessage | undefined {
 	if (entry.type !== "message") return undefined;
 	return entry.message as PersistedMessage;
@@ -70,11 +74,25 @@ function isImageBlock(value: unknown): value is PersistedImageBlock {
 	return typeof value === "object" && value !== null && (value as { type?: string }).type === "image";
 }
 
-function formatArgsLine(argumentsValue: Record<string, unknown> | undefined): string | undefined {
+function normalizeDisplayArgs(argumentsValue: Record<string, unknown> | undefined): ViewerToolArgs | undefined {
 	if (!argumentsValue) return undefined;
-	const keys = Object.keys(argumentsValue);
-	if (keys.length === 0) return undefined;
-	return JSON.stringify(argumentsValue);
+	const displayArgs: ViewerToolArgs = {};
+	for (const [key, value] of Object.entries(argumentsValue)) {
+		if (key === TOOL_CALL_INTENT_FIELD) continue;
+		displayArgs[key] = value;
+	}
+	return Object.keys(displayArgs).length > 0 ? displayArgs : undefined;
+}
+
+function normalizeIntent(intent: unknown, argumentsValue: Record<string, unknown> | undefined): string | undefined {
+	if (typeof intent === "string" && intent.trim().length > 0) {
+		return intent;
+	}
+	const fallbackIntent = argumentsValue?.[TOOL_CALL_INTENT_FIELD];
+	if (typeof fallbackIntent === "string" && fallbackIntent.trim().length > 0) {
+		return fallbackIntent;
+	}
+	return undefined;
 }
 
 function buildNotice(message: string): ViewerRow {
@@ -180,9 +198,12 @@ function normalizeAssistantMessage(message: PersistedMessage, state: NormalizeSt
 				assistantContent = [];
 			}
 			const toolName = block.name ?? "unknown_tool";
+			const intent = normalizeIntent(block.intent, block.arguments);
+			const displayArgs = normalizeDisplayArgs(block.arguments);
 			const metadata: ToolCallMetadata = {
 				toolName,
-				argsLine: formatArgsLine(block.arguments),
+				intent,
+				displayArgs,
 			};
 			if (block.id) {
 				state.toolCalls.set(block.id, metadata);
@@ -192,7 +213,8 @@ function normalizeAssistantMessage(message: PersistedMessage, state: NormalizeSt
 				phase: "call",
 				toolCallId: block.id,
 				toolName,
-				argsLine: metadata.argsLine,
+				intent,
+				displayArgs,
 				content: [],
 			});
 			continue;
@@ -219,7 +241,8 @@ function normalizeToolResultMessage(message: PersistedMessage, state: NormalizeS
 		phase: "result",
 		toolCallId: message.toolCallId,
 		toolName,
-		argsLine: callMetadata?.argsLine,
+		intent: callMetadata?.intent,
+		displayArgs: callMetadata?.displayArgs,
 		isError: message.isError === true,
 		content: buildToolResultContent(message),
 	};
