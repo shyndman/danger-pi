@@ -32,6 +32,7 @@ function createTestContext() {
 	const planMock = vi.fn(async () => {});
 	const sendCustomMessageMock = vi.fn(async () => {});
 	const handleBashCommandMock = vi.fn(async () => {});
+	const handleBtwCommandMock = vi.fn(async () => {});
 	const handlePythonCommandMock = vi.fn(async () => {});
 	const slashCommands: FileSlashCommand[] = [];
 	const startPendingSubmission = vi.fn(
@@ -115,6 +116,7 @@ function createTestContext() {
 		flushPendingBashComponents: vi.fn(),
 		queueCompactionMessage: vi.fn(),
 		handleBashCommand: handleBashCommandMock,
+		handleBtwCommand: handleBtwCommandMock,
 		handlePythonCommand: handlePythonCommandMock,
 		handlePlanModeCommand: planMock,
 		showTreeSelector: vi.fn(),
@@ -131,7 +133,16 @@ function createTestContext() {
 		showWarningMessage: vi.fn(),
 	} as unknown as InteractiveModeContext;
 
-	return { ctx, editor, showError, promptMock, continueFromContextMock, planMock, sendCustomMessageMock };
+	return {
+		ctx,
+		editor,
+		showError,
+		promptMock,
+		continueFromContextMock,
+		planMock,
+		sendCustomMessageMock,
+		handleBtwCommandMock,
+	};
 }
 
 describe("InputController multi-block submissions", () => {
@@ -167,6 +178,35 @@ describe("InputController multi-block submissions", () => {
 		expect(onInput).toHaveBeenCalledTimes(1);
 		expect(onInput).toHaveBeenCalledWith({
 			text: "Need a summary of changes",
+			images: undefined,
+			cancelled: false,
+			started: false,
+		});
+		expect(editor.history).toEqual([submission]);
+	});
+
+	it("runs /btw before trailing text without adding btw prompt content to the main turn", async () => {
+		const { ctx, editor, handleBtwCommandMock, sendCustomMessageMock, showError } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `/btw why is the cache warm?\nUse the cached path for the main fix`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(showError).not.toHaveBeenCalled();
+		expect(handleBtwCommandMock).toHaveBeenCalledTimes(1);
+		expect(handleBtwCommandMock).toHaveBeenCalledWith("why is the cache warm?");
+		expect(sendCustomMessageMock).toHaveBeenCalledTimes(1);
+		expect(sendCustomMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({ customType: "multi-block-command", content: "Ran /btw why is the cache warm?" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledTimes(1);
+		expect(onInput).toHaveBeenCalledWith({
+			text: "Use the cached path for the main fix",
 			images: undefined,
 			cancelled: false,
 			started: false,
@@ -237,6 +277,42 @@ describe("InputController multi-block submissions", () => {
 		expect(editor.history).toEqual(["good", submission]);
 	});
 
+	it("emits text before a final /btw and continues from context without a trailing user message", async () => {
+		const { ctx, editor, handleBtwCommandMock, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = "Keep the current patch small\n\n/btw what evidence justifies this path?";
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(handleBtwCommandMock).toHaveBeenCalledTimes(1);
+		expect(handleBtwCommandMock).toHaveBeenCalledWith("what evidence justifies this path?");
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ customType: "multi-block-text", content: "Keep the current patch small" }),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(sendCustomMessageMock).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				customType: "multi-block-command",
+				content: "Ran /btw what evidence justifies this path?",
+			}),
+			expect.objectContaining({ triggerTurn: false }),
+		);
+		expect(onInput).toHaveBeenCalledTimes(1);
+		expect(onInput).toHaveBeenCalledWith({
+			text: "",
+			continueFromContext: true,
+			cancelled: false,
+			started: true,
+		});
+		expect(editor.history).toEqual(["Keep the current patch small", submission]);
+	});
+
 	it("handles command-only stacks without prompting the agent", async () => {
 		const { ctx, editor, planMock } = createTestContext();
 		const onInput = vi.fn();
@@ -250,6 +326,39 @@ describe("InputController multi-block submissions", () => {
 
 		expect(planMock).toHaveBeenCalledTimes(2);
 		expect(onInput).not.toHaveBeenCalled();
+	});
+
+	it("handles command-only /btw stacks without triggering a main agent turn", async () => {
+		const { ctx, editor, handleBtwCommandMock, sendCustomMessageMock } = createTestContext();
+		const onInput = vi.fn();
+		ctx.onInputCallback = onInput;
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `/btw first side question\n\n/btw second side question`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(handleBtwCommandMock).toHaveBeenCalledTimes(2);
+		expect(handleBtwCommandMock).toHaveBeenNthCalledWith(1, "first side question");
+		expect(handleBtwCommandMock).toHaveBeenNthCalledWith(2, "second side question");
+		expect(sendCustomMessageMock).toHaveBeenCalledTimes(2);
+		expect(onInput).not.toHaveBeenCalled();
+		expect(editor.history).toEqual([submission]);
+	});
+
+	it("runs stacked /btw blocks in author order", async () => {
+		const { ctx, editor, handleBtwCommandMock } = createTestContext();
+		const controller = new InputController(ctx);
+		controller.setupEditorSubmitHandler();
+
+		const submission = `/btw first replacement\n\n/btw second replacement\n\nFinal user turn`;
+		editor.setText(submission);
+		await ctx.editor.onSubmit?.(submission);
+
+		expect(handleBtwCommandMock).toHaveBeenCalledTimes(2);
+		expect(handleBtwCommandMock).toHaveBeenNthCalledWith(1, "first replacement");
+		expect(handleBtwCommandMock).toHaveBeenNthCalledWith(2, "second replacement");
 	});
 
 	it("expands file commands and emits their text before final blocks", async () => {
