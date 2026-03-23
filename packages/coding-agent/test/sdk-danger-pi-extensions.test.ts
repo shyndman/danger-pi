@@ -9,8 +9,10 @@ import { createAgentSession } from "../src/sdk";
 
 describe("Danger Pi bundled extensions", () => {
 	const tempDirs: string[] = [];
+	const originalPath = process.env.PATH;
 
 	afterEach(async () => {
+		process.env.PATH = originalPath;
 		for (const tempDir of tempDirs.splice(0)) {
 			fs.rmSync(tempDir, { recursive: true, force: true });
 		}
@@ -21,7 +23,13 @@ describe("Danger Pi bundled extensions", () => {
 		tempDirs.push(tempDir);
 		const cwd = path.join(tempDir, `project-${Snowflake.next()}`);
 		const agentDir = path.join(tempDir, "agent");
+		const binDir = path.join(tempDir, "bin");
 		fs.mkdirSync(cwd, { recursive: true });
+		fs.mkdirSync(binDir, { recursive: true });
+		const wakatimeCliPath = path.join(binDir, "wakatime-cli");
+		fs.writeFileSync(wakatimeCliPath, "#!/bin/sh\nexit 0\n");
+		fs.chmodSync(wakatimeCliPath, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
 
 		const { extensionsResult, session } = await createAgentSession({
 			cwd,
@@ -37,7 +45,7 @@ describe("Danger Pi bundled extensions", () => {
 		});
 
 		try {
-			expect(dangerPiBundledExtensions).toHaveLength(1);
+			expect(dangerPiBundledExtensions).toHaveLength(2);
 			expect(extensionsResult.errors).toHaveLength(0);
 			expect(extensionsResult.extensions).toHaveLength(dangerPiBundledExtensions.length + 1);
 			expect(extensionsResult.extensions.filter(ext => ext.commands.has("hello_world"))).toHaveLength(1);
