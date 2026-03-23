@@ -47,6 +47,7 @@ This fork adds the following feature areas on top of upstream:
 - Session token tracking and related session-link fixes
 - Clipboard and native integration improvements
 - Nano Banana 2 image-generation pipeline upgrade
+- Fork-local bundled Danger Pi extensions now live in `packages/coding-agent/src/danger-pi/extensions/index.ts` and are wired directly into `sdk.ts` inline extensions, separate from filesystem-discovered user/project extensions
 
 ### Notes
 - The display tool is intentionally extensible; image and color are the current built-in types, not the entire design surface.

@@ -37,6 +37,7 @@ import { Settings, type SkillsSettings } from "./config/settings";
 import { CursorExecHandlers } from "./cursor";
 import "./discovery";
 import { resolveConfigValue } from "./config/resolve-config-value";
+import { dangerPiBundledExtensions } from "./danger-pi/extensions";
 import { initializeWithSettings } from "./discovery";
 import { TtsrManager } from "./export/ttsr";
 import {
@@ -60,7 +61,6 @@ import {
 	type ToolDefinition,
 	wrapRegisteredTools,
 } from "./extensibility/extensions";
-import { createHelloWorldExtension } from "./extensibility/extensions/hello-world";
 import { loadSkills as loadSkillsInternal, type Skill, type SkillWarning } from "./extensibility/skills";
 import { type FileSlashCommand, loadSlashCommands as loadSlashCommandsInternal } from "./extensibility/slash-commands";
 import {
@@ -1089,7 +1089,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		customTools.push(...discoveredCustomTools.tools.map(loaded => loaded.tool));
 	}
 
-	const inlineExtensions: ExtensionFactory[] = [createHelloWorldExtension(), ...(options.extensions ?? [])];
+	const inlineExtensions: ExtensionFactory[] = [...dangerPiBundledExtensions, ...(options.extensions ?? [])];
 	inlineExtensions.push(createAutoresearchExtension);
 	if (customTools.length > 0) {
 		inlineExtensions.push(createCustomToolsExtension(customTools));

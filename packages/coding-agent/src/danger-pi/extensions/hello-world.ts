@@ -1,4 +1,4 @@
-import type { ExtensionFactory } from "./types";
+import type { ExtensionFactory } from "../../extensibility/extensions";
 
 export function createHelloWorldExtension(): ExtensionFactory {
 	return api => {
