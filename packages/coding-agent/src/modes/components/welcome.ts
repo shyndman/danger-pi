@@ -69,7 +69,21 @@ export class WelcomeComponent implements Component {
 
 		// Block-based OMP logo (gradient: magenta → cyan)
 		// biome-ignore format: preserve ASCII art layout
-		const piLogo = ["▀████████████▀", " ╘███    ███  ", "  ███    ███  ", "  ███    ███  ", " ▄███▄  ▄███▄ "];
+
+		const piLogo = [
+      '                  ',
+      '     #▓░▓##       ',
+      '   #░░░░░░░▓#     ',
+      '  ##░░░░░░░▓░#    ',
+      '  #█▒██░███▓█#    ',
+      '  #█ X ██ X █#    ',
+      '  #█░░█  ░░██#    ',
+      '░░  (██░███)  /░  ',
+      '░▒*._█ █  █  /░░/ ',
+      '    \\\\#// /       ',
+      '░░░▒** - - *░░░░\\ ',
+      '░░           ░▓  ',
+    ];
 
 		// Apply gradient to logo
 		const logoColored = piLogo.map(line => this.#gradientLine(line));
