@@ -74,7 +74,7 @@ export class WelcomeComponent implements Component {
 		// biome-ignore format: preserve ASCII art layout
 
 		const piLogo = [
-      '                  ',
+      '                \ue22c ',
       '     #▓░▓##       ',
       '   #░░░░░░░▓#     ',
       '  ##░░░░░░░▓░#    ',
