@@ -58,3 +58,5 @@ pi-*.html
 
 # Generated files
 packages/coding-agent/src/internal-urls/docs-index.generated.ts
+packages/coding-agent/src/danger-pi/extensions/viewer/viewer-client.generated.ts
+packages/coding-agent/src/danger-pi/extensions/viewer/viewer-shell.generated.ts

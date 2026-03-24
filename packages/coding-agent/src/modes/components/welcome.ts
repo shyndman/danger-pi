@@ -2,6 +2,9 @@ import { type Component, padding, truncateToWidth, visibleWidth } from "@oh-my-p
 import { APP_NAME } from "@oh-my-pi/pi-utils";
 import { theme } from "../../modes/theme/theme";
 
+const WELCOME_BORDER_HOT_PINK_ANSI = "\x1b[38;2;247;18;232m"; // #f712e8
+const ANSI_FOREGROUND_RESET = "\x1b[39m";
+
 export interface RecentSession {
 	name: string;
 	timeAgo: string;
@@ -101,7 +104,7 @@ export class WelcomeComponent implements Component {
 
 		// Right column separator
 		const separatorWidth = Math.max(0, rightCol - 2); // padding on each side
-		const separator = ` ${theme.fg("dim", theme.boxRound.horizontal.repeat(separatorWidth))}`;
+		const separator = ` ${this.#hotPink(theme.boxRound.horizontal.repeat(separatorWidth))}`;
 
 		// Recent sessions content
 		const sessionLines: string[] = [];
@@ -149,28 +152,27 @@ export class WelcomeComponent implements Component {
 			"",
 		];
 
-		// Border characters (dim)
+		// Border characters (ANSI hot pink)
 		const hChar = theme.boxRound.horizontal;
-		const h = theme.fg("dim", hChar);
-		const v = theme.fg("dim", theme.boxRound.vertical);
-		const tl = theme.fg("dim", theme.boxRound.topLeft);
-		const tr = theme.fg("dim", theme.boxRound.topRight);
-		const bl = theme.fg("dim", theme.boxRound.bottomLeft);
-		const br = theme.fg("dim", theme.boxRound.bottomRight);
+		const v = this.#hotPink(theme.boxRound.vertical);
+		const tl = this.#hotPink(theme.boxRound.topLeft);
+		const tr = this.#hotPink(theme.boxRound.topRight);
+		const bl = this.#hotPink(theme.boxRound.bottomLeft);
+		const br = this.#hotPink(theme.boxRound.bottomRight);
 
 		const lines: string[] = [];
 
 		// Top border with embedded title
 		const title = ` ${APP_NAME} v${this.version} `;
 		const titlePrefixRaw = hChar.repeat(3);
-		const titleStyled = theme.fg("dim", titlePrefixRaw) + theme.fg("muted", title);
+		const titleStyled = this.#hotPink(titlePrefixRaw) + theme.fg("muted", title);
 		const titleVisLen = visibleWidth(titlePrefixRaw) + visibleWidth(title);
 		const titleSpace = boxWidth - 2;
 		if (titleVisLen >= titleSpace) {
 			lines.push(tl + truncateToWidth(titleStyled, titleSpace) + tr);
 		} else {
 			const afterTitle = titleSpace - titleVisLen;
-			lines.push(tl + titleStyled + theme.fg("dim", hChar.repeat(afterTitle)) + tr);
+			lines.push(tl + titleStyled + this.#hotPink(hChar.repeat(afterTitle)) + tr);
 		}
 
 		// Content rows
@@ -186,9 +188,15 @@ export class WelcomeComponent implements Component {
 		}
 		// Bottom border
 		if (showRightColumn) {
-			lines.push(bl + h.repeat(leftCol) + theme.fg("dim", theme.boxSharp.teeUp) + h.repeat(rightCol) + br);
+			lines.push(
+				bl +
+					this.#hotPink(hChar.repeat(leftCol)) +
+					this.#hotPink(theme.boxSharp.teeUp) +
+					this.#hotPink(hChar.repeat(rightCol)) +
+					br,
+			);
 		} else {
-			lines.push(bl + h.repeat(leftCol) + br);
+			lines.push(bl + this.#hotPink(hChar.repeat(leftCol)) + br);
 		}
 
 		return lines;
@@ -233,6 +241,10 @@ export class WelcomeComponent implements Component {
 			}
 		}
 		return result;
+	}
+
+	#hotPink(text: string): string {
+		return `${WELCOME_BORDER_HOT_PINK_ANSI}${text}${ANSI_FOREGROUND_RESET}`;
 	}
 
 	/** Fit string to exact width with ANSI-aware truncation/padding */
