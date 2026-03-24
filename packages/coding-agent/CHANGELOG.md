@@ -51,6 +51,7 @@
 - Added custom model roles/tags via config YAML
 - Added ability to reorder model role/tag cycling via config YAML
 - Added prompt for tradeoff metrics during autoresearch setup to collect secondary metrics alongside primary metric
+- Added live-reloading-viewer capability via `/viewer` command, providing a browser-based reading surface for the latest assistant reply with iterative summarization using the `smol` model role.
 - Added validation of contract path specifications to reject absolute paths and parent directory references
 - Added stricter benchmark command validation in `isAutoresearchShCommand()` to reject chained commands, pipes, and redirects
 - Added protection against prototype pollution in ASI data and metric cloning by filtering `__proto__`, `constructor`, and `prototype` keys

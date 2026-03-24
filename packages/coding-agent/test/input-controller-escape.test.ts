@@ -57,6 +57,7 @@ function createContext(): {
 		handleBtwCommand: ReturnType<typeof vi.fn>;
 		handleBtwEscape: ReturnType<typeof vi.fn>;
 		hasActiveBtw: ReturnType<typeof vi.fn>;
+		isKnownSlashCommand: ReturnType<typeof vi.fn>;
 		onInputCallback: ReturnType<typeof vi.fn>;
 		prompt: ReturnType<typeof vi.fn>;
 		requestRender: ReturnType<typeof vi.fn>;
@@ -76,6 +77,7 @@ function createContext(): {
 	const handleBtwCommand = vi.fn(async () => {});
 	const handleBtwEscape = vi.fn(() => true);
 	const hasActiveBtw = vi.fn(() => false);
+	const isKnownSlashCommand = vi.fn(() => false);
 	const startPendingSubmission = vi.fn((input: { text: string; images?: InteractiveModeContext["pendingImages"] }) => {
 		ensureLoadingAnimation();
 		return createSubmission(input);
@@ -148,6 +150,7 @@ function createContext(): {
 		handleBtwEscape,
 		handleBtwCommand,
 		hasActiveBtw,
+		isKnownSlashCommand,
 		showTreeSelector: vi.fn(),
 		showUserMessageSelector: vi.fn(),
 		showSessionSelector: vi.fn(),
@@ -167,6 +170,7 @@ function createContext(): {
 			handleBtwCommand,
 			handleBtwEscape,
 			hasActiveBtw,
+			isKnownSlashCommand,
 			onInputCallback,
 			prompt,
 			requestRender,
@@ -210,6 +214,27 @@ describe("InputController escape behavior", () => {
 		expect(spies.handleBtwCommand).toHaveBeenCalledWith("why is it doing that?");
 		expect(spies.prompt).not.toHaveBeenCalled();
 		expect(editor.addToHistory).not.toHaveBeenCalled();
+		expect(editor.getText()).toBe("");
+	});
+
+	it("submits known slash commands without starting optimistic loading UI", async () => {
+		const { ctx, editor, spies } = createContext();
+		spies.isKnownSlashCommand.mockReturnValue(true);
+		const controller = new InputController(ctx);
+
+		controller.setupEditorSubmitHandler();
+		editor.setText("/viewer");
+		await editor.onSubmit?.("/viewer");
+
+		expect(spies.startPendingSubmission).not.toHaveBeenCalled();
+		expect(spies.ensureLoadingAnimation).not.toHaveBeenCalled();
+		expect(spies.onInputCallback).toHaveBeenCalledWith({
+			text: "/viewer",
+			images: undefined,
+			cancelled: false,
+			started: true,
+		});
+		expect(editor.addToHistory).toHaveBeenCalledWith("/viewer");
 		expect(editor.getText()).toBe("");
 	});
 

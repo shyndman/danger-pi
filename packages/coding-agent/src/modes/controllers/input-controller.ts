@@ -357,6 +357,22 @@ export class InputController {
 			// First, move any pending bash components to chat
 			this.ctx.flushPendingBashComponents();
 
+			if (this.ctx.isKnownSlashCommand(text)) {
+				this.ctx.editor.addToHistory(historyText);
+				this.ctx.editor.setText("");
+				const images = inputImages && inputImages.length > 0 ? [...inputImages] : undefined;
+				this.ctx.pendingImages = [];
+				if (this.ctx.onInputCallback) {
+					this.ctx.onInputCallback({
+						text,
+						images,
+						cancelled: false,
+						started: true,
+					});
+				}
+				return;
+			}
+
 			// Generate session title on first message
 			this.#maybeGenerateSessionTitle(text);
 
