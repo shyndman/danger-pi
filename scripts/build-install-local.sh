@@ -61,6 +61,14 @@ ensure_native_addons() {
 	)
 }
 
+generate_viewer_assets() {
+	echo "Generating viewer assets via packages/coding-agent"
+	(
+		cd "$REPO_ROOT"
+		bun --cwd=packages/coding-agent run scripts/generate-viewer-bundle.ts
+	)
+}
+
 collect_native_addons() {
 	NATIVE_ADDON_FILES=()
 	for candidate in "${NATIVE_CANDIDATES[@]}"; do
@@ -104,6 +112,7 @@ await Bun.write(file, `${JSON.stringify(packageJson, null, "\t")}\n`);
 '
 
 ensure_native_addons
+generate_viewer_assets
 
 
 echo "Building binaries"
