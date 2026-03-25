@@ -1,6 +1,7 @@
 import { getOAuthProviders } from "@oh-my-pi/pi-ai";
 import type { SettingPath, SettingValue } from "../config/settings";
 import { settings } from "../config/settings";
+import { dangerPiBundledBuiltinSlashCommands } from "../danger-pi/slash-commands";
 import type { InteractiveModeContext } from "../modes/types";
 
 function refreshStatusLine(ctx: InteractiveModeContext): void {
@@ -33,7 +34,7 @@ interface ParsedBuiltinSlashCommand {
 	text: string;
 }
 
-interface BuiltinSlashCommandSpec extends BuiltinSlashCommand {
+export interface BuiltinSlashCommandSpec extends BuiltinSlashCommand {
 	aliases?: string[];
 	allowArgs?: boolean;
 	allowBatch?: boolean;
@@ -71,7 +72,7 @@ const shutdownHandler = (_command: ParsedBuiltinSlashCommand, runtime: BuiltinSl
 	void runtime.ctx.shutdown();
 };
 
-const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
+const CORE_BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 	{
 		name: "settings",
 		description: "Open settings menu",
@@ -611,6 +612,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
 		description: "Quit the application",
 		handle: shutdownHandler,
 	},
+];
+
+const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<BuiltinSlashCommandSpec> = [
+	...CORE_BUILTIN_SLASH_COMMAND_REGISTRY,
+	...dangerPiBundledBuiltinSlashCommands,
 ];
 
 const BUILTIN_SLASH_COMMAND_LOOKUP = new Map<string, BuiltinSlashCommandSpec>();
