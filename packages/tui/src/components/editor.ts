@@ -30,6 +30,7 @@ function sanitizeLoadedText(text: string): string {
 		.filter(char => char === "\n" || char.charCodeAt(0) >= 32)
 		.join("");
 }
+
 export type { EditorComponent } from "../editor-component";
 
 const segmenter = getSegmenter();
