@@ -61,6 +61,7 @@ describe("submitInteractiveInput", () => {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
 			isStreaming: false,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "resume now", started: true, synthetic: true });
 
@@ -68,6 +69,31 @@ describe("submitInteractiveInput", () => {
 
 		expect(mode.markPendingSubmissionStarted).not.toHaveBeenCalled();
 		expect(session.prompt).toHaveBeenCalledWith("resume now", { synthetic: true, expandPromptTemplates: false });
+		expect(session.continueFromContext).not.toHaveBeenCalled();
+		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
+		expect(mode.showError).not.toHaveBeenCalled();
+	});
+
+	it("continues from context for already-started multi-block follow-ups", async () => {
+		const mode = {
+			markPendingSubmissionStarted: vi.fn(() => false),
+			finishPendingSubmission: vi.fn(),
+			showError: vi.fn(),
+			checkShutdownRequested: vi.fn(async () => {}),
+		};
+		const session = {
+			prompt: vi.fn(async () => true),
+			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
+			isStreaming: false,
+		};
+		const input = createInput({ text: "", started: true, continueFromContext: true });
+
+		await submitInteractiveInput(mode, session, input);
+
+		expect(mode.markPendingSubmissionStarted).not.toHaveBeenCalled();
+		expect(session.prompt).not.toHaveBeenCalled();
+		expect(session.continueFromContext).toHaveBeenCalledTimes(1);
 		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 		expect(mode.showError).not.toHaveBeenCalled();
 	});
@@ -83,6 +109,7 @@ describe("submitInteractiveInput", () => {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
 			isStreaming: false,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput();
 
@@ -90,6 +117,7 @@ describe("submitInteractiveInput", () => {
 
 		expect(mode.markPendingSubmissionStarted).toHaveBeenCalledWith(input);
 		expect(session.prompt).not.toHaveBeenCalled();
+		expect(session.continueFromContext).not.toHaveBeenCalled();
 		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 		expect(mode.showError).not.toHaveBeenCalled();
 	});
@@ -105,6 +133,7 @@ describe("submitInteractiveInput", () => {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
 			isStreaming: false,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "continue goal", customType: "goal-continuation" });
 
@@ -136,6 +165,7 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
 			isStreaming: false,
 		};
 		const input = createInput({ text: "loop prompt" });
@@ -156,6 +186,7 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
 			isStreaming: true,
 		};
 		const input = createInput({ text: "interrupt now", streamingBehavior: "steer" });
@@ -180,6 +211,7 @@ describe("submitInteractiveInput", () => {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
 			isStreaming: true,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "continue goal", customType: "goal-continuation" });
 
@@ -210,6 +242,7 @@ describe("submitInteractiveInput", () => {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
 			isStreaming: true,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "loop prompt" });
 

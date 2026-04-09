@@ -561,7 +561,12 @@ export type AgentSessionEvent =
 	| { type: "retry_fallback_applied"; from: string; to: string; role: string }
 	| { type: "retry_fallback_succeeded"; model: string; role: string }
 	| { type: "ttsr_triggered"; rules: Rule[] }
-	| { type: "todo_reminder"; todos: TodoItem[]; attempt: number; maxAttempts: number }
+	| {
+			type: "todo_reminder";
+			todos: TodoItem[];
+			attempt: number;
+			maxAttempts: number;
+	  }
 	| { type: "todo_auto_clear" }
 	| { type: "irc_message"; message: CustomMessage }
 	| { type: "notice"; level: "info" | "warning" | "error"; message: string; source?: string }
@@ -1398,12 +1403,23 @@ function getPermissionIntent(
 	}
 	if (toolName === "delete") {
 		const p = getStringProperty(a, "path");
-		return { toolName, title: p ? `Delete ${p}` : toolName, paths: p ? [p] : undefined, cacheKey: toolName };
+		return {
+			toolName,
+			title: p ? `Delete ${p}` : toolName,
+			paths: p ? [p] : undefined,
+			cacheKey: toolName,
+		};
 	}
 	if (toolName === "move") {
 		const from = getStringProperty(a, "oldPath") ?? getStringProperty(a, "path") ?? getStringProperty(a, "from");
 		const to = getStringProperty(a, "newPath") ?? getStringProperty(a, "to") ?? getStringProperty(a, "destination");
-		if (from && to) return { toolName, title: `Move ${from} to ${to}`, paths: [from, to], cacheKey: toolName };
+		if (from && to)
+			return {
+				toolName,
+				title: `Move ${from} to ${to}`,
+				paths: [from, to],
+				cacheKey: toolName,
+			};
 		return {
 			toolName,
 			title: from ? `Move ${from}` : toolName,
@@ -1693,7 +1709,10 @@ export class AgentSession {
 	#unsubscribeAppendOnly?: () => void;
 	#unsubscribeModelRoles?: () => void;
 	/** Last (enable, providerId) tuple resolved by `#syncAppendOnlyContext` — used to skip no-op invalidations. */
-	#lastAppendOnlyResolution?: { enable: boolean; providerId: string | undefined };
+	#lastAppendOnlyResolution?: {
+		enable: boolean;
+		providerId: string | undefined;
+	};
 	#eventListeners: AgentSessionEventListener[] = [];
 	#commandMetadataChangedListeners: CommandMetadataChangedListener[] = [];
 
@@ -1999,7 +2018,9 @@ export class AgentSession {
 				user: mode === "system",
 			});
 		} catch (error) {
-			logger.warn("Failed to acquire macOS power assertion", { error: String(error) });
+			logger.warn("Failed to acquire macOS power assertion", {
+				error: String(error),
+			});
 		}
 	}
 
@@ -2010,7 +2031,9 @@ export class AgentSession {
 		try {
 			assertion.stop();
 		} catch (error) {
-			logger.warn("Failed to release macOS power assertion", { error: String(error) });
+			logger.warn("Failed to release macOS power assertion", {
+				error: String(error),
+			});
 		}
 	}
 
@@ -2629,7 +2652,11 @@ export class AgentSession {
 			},
 			emit: event => {
 				if (event.type === "goal_updated") {
-					return this.#emitSessionEvent({ type: "goal_updated", goal: event.goal, state: event.state });
+					return this.#emitSessionEvent({
+						type: "goal_updated",
+						goal: event.goal,
+						state: event.state,
+					});
 				}
 			},
 			persist: (mode, state) => {
@@ -4016,7 +4043,10 @@ export class AgentSession {
 			const message = event.message;
 			const deobfuscatedContent = deobfuscateAssistantContent(obfuscator, message.content);
 			if (deobfuscatedContent !== message.content) {
-				displayEvent = { ...event, message: { ...message, content: deobfuscatedContent } };
+				displayEvent = {
+					...event,
+					message: { ...message, content: deobfuscatedContent },
+				};
 			}
 		}
 
@@ -5932,7 +5962,10 @@ export class AgentSession {
 				recoveredErrors: event.recoveredErrors,
 			});
 		} else if (event.type === "ttsr_triggered") {
-			await this.#extensionRunner.emit({ type: "ttsr_triggered", rules: event.rules });
+			await this.#extensionRunner.emit({
+				type: "ttsr_triggered",
+				rules: event.rules,
+			});
 		} else if (event.type === "todo_reminder") {
 			await this.#extensionRunner.emit({
 				type: "todo_reminder",
@@ -6148,7 +6181,9 @@ export class AgentSession {
 				await this.#extensionRunner.emit({ type: "session_shutdown" });
 			}
 		} catch (error) {
-			logger.warn("Failed to emit session_shutdown event", { error: String(error) });
+			logger.warn("Failed to emit session_shutdown event", {
+				error: String(error),
+			});
 		}
 		// Abort post-prompt work so the drain below can complete. Without this, a
 		// deferred-handoff task that has already advanced into
@@ -6371,7 +6406,10 @@ export class AgentSession {
 		const previousAllowAcpAgentInitiatedTurns = this.#allowAcpAgentInitiatedTurns;
 		this.#allowAcpAgentInitiatedTurns = true;
 		try {
-			const drained = await manager.drainDeliveries({ timeoutMs: options?.timeoutMs, filter: ownerFilter });
+			const drained = await manager.drainDeliveries({
+				timeoutMs: options?.timeoutMs,
+				filter: ownerFilter,
+			});
 			const after = manager.getDeliveryState(ownerFilter);
 			return drained && (before.queued !== after.queued || before.delivering !== after.delivering);
 		} finally {
@@ -6749,7 +6787,12 @@ export class AgentSession {
 							? getStringProperty(args as Record<string, unknown>, "command")
 							: undefined;
 					const commandContent = command
-						? [{ type: "content" as const, content: { type: "text" as const, text: `$ ${command}` } }]
+						? [
+								{
+									type: "content" as const,
+									content: { type: "text" as const, text: `$ ${command}` },
+								},
+							]
 						: undefined;
 					// Short-circuit on persisted decisions.
 					const persisted = this.#acpPermissionDecisions.get(permissionIntent.cacheKey);
@@ -6826,7 +6869,10 @@ export class AgentSession {
 
 	async #applyActiveToolsByName(
 		toolNames: string[],
-		options?: { persistMCPSelection?: boolean; previousSelectedMCPToolNames?: string[] },
+		options?: {
+			persistMCPSelection?: boolean;
+			previousSelectedMCPToolNames?: string[];
+		},
 	): Promise<void> {
 		toolNames = normalizeToolNames(toolNames);
 		const previousSelectedMCPToolNames = options?.previousSelectedMCPToolNames ?? this.getSelectedMCPToolNames();
@@ -6907,7 +6953,9 @@ export class AgentSession {
 				? [...previousSshTool.hostNames]
 				: [];
 		const candidateHostNames = new Set(previousHostNames);
-		const capability = await loadCapability<{ name: string }>("ssh", { cwd: this.sessionManager.getCwd() });
+		const capability = await loadCapability<{ name: string }>("ssh", {
+			cwd: this.sessionManager.getCwd(),
+		});
 		for (const host of capability.items) {
 			if (typeof host?.name === "string") {
 				candidateHostNames.add(host.name);
@@ -6959,6 +7007,7 @@ export class AgentSession {
 			persistMCPSelection: false,
 		});
 	}
+
 	/** Rebuild the base system prompt using the current active tool set. */
 	async refreshBaseSystemPrompt(): Promise<void> {
 		if (!this.#rebuildSystemPrompt) return;
@@ -7160,7 +7209,9 @@ export class AgentSession {
 		}
 
 		const nextActive = [...this.#getActiveNonMCPToolNames(), ...this.getSelectedMCPToolNames()];
-		await this.#applyActiveToolsByName(nextActive, { previousSelectedMCPToolNames });
+		await this.#applyActiveToolsByName(nextActive, {
+			previousSelectedMCPToolNames,
+		});
 	}
 
 	/**
@@ -7464,7 +7515,10 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model; thinkingLevel?: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{
+		model: Model;
+		thinkingLevel?: ThinkingLevel;
+	}> {
 		return this.#scopedModels;
 	}
 
@@ -7675,6 +7729,11 @@ export class AgentSession {
 	/** Replace file-based slash commands used for prompt expansion. */
 	setSlashCommands(slashCommands: FileSlashCommand[]): void {
 		this.#slashCommands = [...slashCommands];
+	}
+
+	/** Loaded file-based slash commands (read-only). */
+	get fileCommands(): ReadonlyArray<FileSlashCommand> {
+		return this.#slashCommands;
 	}
 
 	/** Custom commands (TypeScript slash commands and MCP prompts) */
@@ -8068,8 +8127,18 @@ export class AgentSession {
 
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
 		const message = options?.synthetic
-			? { role: "developer" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() }
-			: { role: "user" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() };
+			? {
+					role: "developer" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				}
+			: {
+					role: "user" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				};
 
 		const preludeMessages: AgentMessage[] = [];
 		if (eagerTodoPrelude) {
@@ -8417,7 +8486,9 @@ export class AgentSession {
 			getContextUsage: () => this.getContextUsage(),
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
-				const success = await this.newSession({ parentSession: options?.parentSession });
+				const success = await this.newSession({
+					parentSession: options?.parentSession,
+				});
 				if (!success) {
 					return { cancelled: true };
 				}
@@ -8431,7 +8502,9 @@ export class AgentSession {
 				return { cancelled: result.cancelled };
 			},
 			navigateTree: async (targetId, options) => {
-				const result = await this.navigateTree(targetId, { summarize: options?.summarize });
+				const result = await this.navigateTree(targetId, {
+					summarize: options?.summarize,
+				});
 				return { cancelled: result.cancelled };
 			},
 			compact: async instructionsOrOptions => {
@@ -8867,6 +8940,15 @@ export class AgentSession {
 	}
 
 	/**
+	 * Start a turn from the existing session context without appending a new message.
+	 * Used by multi-block submissions when all user-visible blocks have already been persisted.
+	 */
+	async continueFromContext(): Promise<void> {
+		await this.agent.continue();
+		await this.#waitForPostPromptRecovery();
+	}
+
+	/**
 	 * Send a user message through the prompt flow.
 	 *
 	 * Omitted `deliverAs` starts a turn when idle and queues as a steer while streaming.
@@ -9267,7 +9349,9 @@ export class AgentSession {
 		this.sessionManager.appendThinkingLevelChange(this.thinkingLevel, this.configuredThinkingLevel());
 		this.sessionManager.appendServiceTierChange(this.#serviceTierEntry());
 		if (nextDiscoverySessionToolNames) {
-			await this.#applyActiveToolsByName(nextDiscoverySessionToolNames, { persistMCPSelection: false });
+			await this.#applyActiveToolsByName(nextDiscoverySessionToolNames, {
+				persistMCPSelection: false,
+			});
 			if (this.getSelectedMCPToolNames().length > 0) {
 				this.sessionManager.appendMCPToolSelection(this.getSelectedMCPToolNames());
 			}
@@ -9343,7 +9427,9 @@ export class AgentSession {
 		try {
 			const oldDirStat = await fs.promises.stat(oldArtifactDir);
 			if (oldDirStat.isDirectory()) {
-				await fs.promises.cp(oldArtifactDir, newArtifactDir, { recursive: true });
+				await fs.promises.cp(oldArtifactDir, newArtifactDir, {
+					recursive: true,
+				});
 			}
 		} catch (err) {
 			if (!isEnoent(err)) {
@@ -9564,7 +9650,11 @@ export class AgentSession {
 
 		await this.applyRoleModel(next);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, role: next.role };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			role: next.role,
+		};
 	}
 
 	async #getScopedModelsWithApiKey(): Promise<Array<{ model: Model; thinkingLevel?: ThinkingLevel }>> {
@@ -9613,7 +9703,11 @@ export class AgentSession {
 		this.setThinkingLevel(this.#autoThinking ? AUTO_THINKING : next.thinkingLevel);
 		await this.#syncAfterModelChange(previousEditMode);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: true,
+		};
 	}
 
 	async #cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
@@ -9643,7 +9737,11 @@ export class AgentSession {
 		this.#reapplyThinkingLevel();
 		await this.#syncAfterModelChange(previousEditMode);
 
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return {
+			model: nextModel,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: false,
+		};
 	}
 
 	/**
@@ -9710,7 +9808,10 @@ export class AgentSession {
 			if (persist && effectiveLevel !== undefined && effectiveLevel !== ThinkingLevel.Off) {
 				this.settings.set("defaultThinkingLevel", effectiveLevel);
 			}
-			this.#emit({ type: "thinking_level_changed", thinkingLevel: effectiveLevel });
+			this.#emit({
+				type: "thinking_level_changed",
+				thinkingLevel: effectiveLevel,
+			});
 		}
 	}
 
@@ -11651,7 +11752,9 @@ export class AgentSession {
 			logger.warn("Rewind branch checkpoint missing, falling back to root", {
 				error: error instanceof Error ? error.message : String(error),
 			});
-			this.sessionManager.branchWithSummary(null, report, { startedAt: checkpointState.startedAt });
+			this.sessionManager.branchWithSummary(null, report, {
+				startedAt: checkpointState.startedAt,
+			});
 		}
 
 		const rewoundAt = new Date().toISOString();
@@ -12472,7 +12575,12 @@ export class AgentSession {
 				: this.settings.getModelRole(role);
 
 		if (!roleModelStr) {
-			return { model: undefined, thinkingLevel: undefined, explicitThinkingLevel: false, warning: undefined };
+			return {
+				model: undefined,
+				thinkingLevel: undefined,
+				explicitThinkingLevel: false,
+				warning: undefined,
+			};
 		}
 
 		return resolveModelRoleValue(roleModelStr, availableModels, {
@@ -12638,7 +12746,13 @@ export class AgentSession {
 				type: "session.compacting",
 				sessionId: this.sessionId,
 				messages: compactMessages,
-			})) as { context?: string[]; prompt?: string; preserveData?: Record<string, unknown> } | undefined;
+			})) as
+				| {
+						context?: string[];
+						prompt?: string;
+						preserveData?: Record<string, unknown>;
+				  }
+				| undefined;
 
 			hookContext = result?.context;
 			hookPrompt = result?.prompt;

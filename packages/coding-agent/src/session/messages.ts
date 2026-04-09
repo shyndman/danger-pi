@@ -153,6 +153,12 @@ export interface BackgroundTanDispatchDetails {
 	sessionFile: string;
 }
 
+/** Custom message type for textual blocks emitted during multi-block submissions. */
+export const MULTI_BLOCK_TEXT_MESSAGE_TYPE = "multi-block-text";
+
+/** Custom message type for builtin slash commands emitted within multi-block submissions. */
+export const MULTI_BLOCK_COMMAND_MESSAGE_TYPE = "multi-block-command";
+
 export interface SkillPromptDetails {
 	name: string;
 	path: string;
@@ -788,6 +794,12 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 				return out;
 			}
 			case "custom": {
+				// Multi-block command breadcrumbs are UI-only — the command's
+				// expanded output is emitted as its own block, so drop the
+				// command message itself before it reaches the model.
+				if (m.customType === MULTI_BLOCK_COMMAND_MESSAGE_TYPE) {
+					return [];
+				}
 				if (!isCustomMessageContent(m.content)) return [];
 				if (isUserInvokedSkillPrompt(m)) {
 					return [

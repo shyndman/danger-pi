@@ -281,7 +281,7 @@ export async function submitInteractiveInput(
 		InteractiveMode,
 		"markPendingSubmissionStarted" | "finishPendingSubmission" | "showError" | "checkShutdownRequested"
 	>,
-	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "isStreaming">,
+	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "isStreaming" | "continueFromContext">,
 	input: SubmittedUserInput,
 ): Promise<void> {
 	if (input.cancelled) {
@@ -328,6 +328,8 @@ export async function submitInteractiveInput(
 				expandPromptTemplates: false,
 				userInitiated: input.userInitiated,
 			});
+		} else if (input.continueFromContext) {
+			await session.continueFromContext();
 		} else {
 			await session.prompt(input.text, { images: input.images, streamingBehavior });
 		}

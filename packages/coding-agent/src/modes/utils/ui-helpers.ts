@@ -41,7 +41,10 @@ import type { CompactionQueuedMessage, InteractiveModeContext } from "../../mode
 import {
 	BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE,
 	type CustomMessage,
+	type HookMessage,
 	LSP_LATE_DIAGNOSTIC_MESSAGE_TYPE,
+	MULTI_BLOCK_COMMAND_MESSAGE_TYPE,
+	MULTI_BLOCK_TEXT_MESSAGE_TYPE,
 	SKILL_PROMPT_MESSAGE_TYPE,
 	type SkillPromptDetails,
 } from "../../session/messages";
@@ -175,6 +178,19 @@ export class UiHelpers {
 						const component = new SkillMessageComponent(message as CustomMessage<SkillPromptDetails>);
 						component.setExpanded(this.ctx.toolOutputExpanded);
 						this.ctx.chatContainer.addChild(component);
+						break;
+					}
+					if (message.customType === MULTI_BLOCK_TEXT_MESSAGE_TYPE) {
+						const textContent = this.#getCustomMessageText(message);
+						const userComponent = new UserMessageComponent(textContent, true);
+						this.ctx.chatContainer.addChild(userComponent);
+						break;
+					}
+					if (message.customType === MULTI_BLOCK_COMMAND_MESSAGE_TYPE) {
+						const renderer = this.ctx.session.extensionRunner?.getMessageRenderer(message.customType);
+						const commandComponent = new CustomMessageComponent(message as CustomMessage<unknown>, renderer);
+						commandComponent.setExpanded(this.ctx.toolOutputExpanded);
+						this.ctx.chatContainer.addChild(commandComponent);
 						break;
 					}
 					if (
@@ -406,7 +422,10 @@ export class UiHelpers {
 							}
 							readGroup.updateArgs(content.arguments, content.id);
 							readGroup.updateResult(
-								{ content: [{ type: "text", text: errorMessage }], isError: true },
+								{
+									content: [{ type: "text", text: errorMessage }],
+									isError: true,
+								},
 								false,
 								content.id,
 							);
@@ -457,7 +476,10 @@ export class UiHelpers {
 
 					if (hasErrorStop && errorMessage) {
 						component.updateResult(
-							{ content: [{ type: "text", text: errorMessage }], isError: true },
+							{
+								content: [{ type: "text", text: errorMessage }],
+								isError: true,
+							},
 							false,
 							content.id,
 						);
@@ -911,5 +933,15 @@ export class UiHelpers {
 			}
 		}
 		return text.trim();
+	}
+
+	#getCustomMessageText(message: CustomMessage | HookMessage): string {
+		if (typeof message.content === "string") {
+			return message.content;
+		}
+		return message.content
+			.filter((content): content is { type: "text"; text: string } => content.type === "text")
+			.map(content => content.text)
+			.join("");
 	}
 }

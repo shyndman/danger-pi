@@ -67,6 +67,7 @@ export type SubmittedUserInput = {
 	 *  it). Normal user Enter carries "steer" to match the streaming-branch Enter;
 	 *  background/continuation submits omit it and default to "followUp". */
 	streamingBehavior?: "steer" | "followUp";
+	continueFromContext?: boolean;
 	cancelled: boolean;
 	started: boolean;
 };

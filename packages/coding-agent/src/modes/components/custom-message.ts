@@ -4,6 +4,7 @@ import type { MessageRenderer } from "../../extensibility/extensions/types";
 import { theme } from "../../modes/theme/theme";
 import type { CustomMessage } from "../../session/messages";
 import { renderFramedMessage } from "./message-frame";
+import { getCustomMessageLabel } from "./message-labels";
 
 /**
  * Component that renders a custom message entry from extensions.
@@ -50,7 +51,10 @@ export class CustomMessageComponent extends Container {
 		// tag hooks with the hook glyph, other injected messages with a neutral package.
 		const isHook = (this.message.role as string) === "hookMessage";
 		const custom = renderFramedMessage({
-			message: this.message,
+			message: {
+				...this.message,
+				customType: getCustomMessageLabel(this.message) ?? this.message.customType,
+			},
 			box: this.#box,
 			expanded: this.#expanded,
 			customRenderer: this.customRenderer,
