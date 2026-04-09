@@ -403,6 +403,6 @@ const INTRO_MS = 2000;
  * Pre-rendered logo frames, one per phase. Frame 0 is the resting state;
  * the intro sweeps frames in reverse so it lands on frame 0.
  */
-const LOGO_FRAMES: readonly (readonly string[])[] = Array.from({ length: INTRO_PHASES }, (_, i) =>
+const _LOGO_FRAMES: readonly (readonly string[])[] = Array.from({ length: INTRO_PHASES }, (_, i) =>
 	gradientLogo(PI_LOGO, i / INTRO_PHASES),
 );
