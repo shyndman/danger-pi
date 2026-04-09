@@ -6,6 +6,7 @@ import { Snowflake, setProjectDir } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
 import type { SettingPath, SettingValue } from "../config/settings";
 import { settings } from "../config/settings";
+import { dangerPiBundledBuiltinSlashCommands } from "../danger-pi/slash-commands";
 import {
 	clearPluginRootsAndCaches,
 	resolveActiveProjectRegistryPath,
@@ -41,6 +42,7 @@ import type {
 } from "./types";
 
 export type { BuiltinSlashCommand, SubcommandDef } from "./types";
+export type BuiltinSlashCommandSpec = SlashCommandSpec;
 
 /** TUI-specific runtime accepted by `executeBuiltinSlashCommand`. */
 export type BuiltinSlashCommandRuntime = TuiSlashCommandRuntime;
@@ -57,7 +59,7 @@ const shutdownHandlerTui = (_command: ParsedSlashCommand, runtime: TuiSlashComma
 	return commandConsumed();
 };
 
-const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+const CORE_BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	{
 		name: "settings",
 		description: "Open settings menu",
@@ -1653,6 +1655,11 @@ const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 		description: "Quit the application",
 		handleTui: shutdownHandlerTui,
 	},
+];
+
+const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
+	...CORE_BUILTIN_SLASH_COMMAND_REGISTRY,
+	...dangerPiBundledBuiltinSlashCommands,
 ];
 
 const BUILTIN_SLASH_COMMAND_LOOKUP = new Map<string, SlashCommandSpec>();

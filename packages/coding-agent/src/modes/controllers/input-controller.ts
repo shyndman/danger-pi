@@ -455,7 +455,11 @@ export class InputController {
 				if (title) {
 					const applied = await this.ctx.sessionManager.setSessionName(title, "auto");
 					if (applied) {
-						setSessionTerminalTitle(this.ctx.sessionManager.getSessionName()!, this.ctx.sessionManager.getCwd());
+						setSessionTerminalTitle(
+							this.ctx.sessionManager.getSessionName()!,
+							this.ctx.sessionManager.getCwd(),
+							this.ctx.sessionManager.titleSource,
+						);
 						this.ctx.updateEditorBorderColor();
 					}
 				}
@@ -720,7 +724,10 @@ export class InputController {
 		this.ctx.editor.setText("");
 		try {
 			const content = await Bun.file(skillPath).text();
-			const { body } = parseFrontmatter(content, { source: skillPath, level: "fatal" });
+			const { body } = parseFrontmatter(content, {
+				source: skillPath,
+				level: "fatal",
+			});
 			const skillName = commandName.slice("skill:".length);
 			const expandedBody = isNative
 				? await interpolateShellExpressions({
