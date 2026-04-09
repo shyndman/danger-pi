@@ -235,7 +235,7 @@ import type { CompactOptions, ContextUsage } from "../extensibility/extensions/t
 import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import type { HookCommandContext } from "../extensibility/hooks/types";
 import type { RecoveredRetryError } from "../extensibility/shared-events";
-import type { Skill, SkillWarning } from "../extensibility/skills";
+import { type Skill, type SkillWarning, setActiveSkills } from "../extensibility/skills";
 import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
@@ -7729,6 +7729,13 @@ export class AgentSession {
 	/** Replace file-based slash commands used for prompt expansion. */
 	setSlashCommands(slashCommands: FileSlashCommand[]): void {
 		this.#slashCommands = [...slashCommands];
+	}
+
+	/** Replace loaded skills and warnings for runtime reload flows. */
+	setSkills(skills: Skill[], warnings: SkillWarning[]): void {
+		this.#skills = [...skills];
+		this.#skillWarnings = [...warnings];
+		setActiveSkills(this.#skills);
 	}
 
 	/** Loaded file-based slash commands (read-only). */

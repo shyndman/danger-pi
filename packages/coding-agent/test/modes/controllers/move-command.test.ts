@@ -30,6 +30,8 @@ function createMoveContext(sourceDir: string) {
 		updateEditorBorderColor: vi.fn(),
 		reloadTodos: vi.fn(async () => {}),
 		ui: { requestRender: vi.fn() },
+		refreshRuntimeCommandState: vi.fn(async () => {}),
+		syncOmpLiveReloadState: vi.fn(async () => {}),
 		present,
 	} as unknown as InteractiveModeContext;
 	return { ctx, state, present };

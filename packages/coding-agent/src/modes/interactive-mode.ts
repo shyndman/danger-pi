@@ -43,7 +43,6 @@ import {
 	APP_NAME,
 	adjustHsv,
 	formatNumber,
-	getProjectDir,
 	hsvToRgb,
 	isEnoent,
 	logger,
@@ -69,6 +68,7 @@ import type {
 	ExtensionWidgetOptions,
 } from "../extensibility/extensions";
 import type { CompactOptions } from "../extensibility/extensions/types";
+import { loadSkills, type Skill } from "../extensibility/skills";
 import { loadSlashCommands } from "../extensibility/slash-commands";
 import { type GuidedGoalMessage, runGuidedGoalTurn } from "../goals/guided-setup";
 import type { Goal, GoalModeState } from "../goals/state";
@@ -163,6 +163,7 @@ import {
 	parseLoopLimitArgs,
 } from "./loop-limit";
 import { OAuthManualInputManager } from "./oauth-manual-input";
+import { OmpLiveReloadController, type OmpLiveReloadMode } from "./omp-live-reload";
 import { countRunningSubagentBadgeAgents, getRunningSubagentBadgeRegistry } from "./running-subagent-badge";
 import {
 	type ObservableSession,
@@ -272,6 +273,7 @@ export function computeEditorMaxHeight(terminalRows: number): number {
 	const comfortable = Math.max(EDITOR_MAX_HEIGHT_MIN, Math.min(EDITOR_MAX_HEIGHT_MAX, rows - EDITOR_RESERVED_ROWS));
 	return Math.max(EDITOR_MIN_RENDERED_ROWS, Math.min(comfortable, rows - EDITOR_MIN_CHROME_ROWS));
 }
+const OMP_LIVE_RELOAD_STATUS_KEY = "omp-live-reload";
 
 const HUD_NOTE_SUP_DIGITS: Record<string, string> = {
 	"0": "\u2070",
@@ -301,7 +303,10 @@ const GOAL_SUBCOMMANDS = new Set<GoalSubcommand>(["set", "show", "pause", "resum
 const PLAN_KEEP_CONTEXT_OPTION_INDEX = 2;
 const PLAN_KEEP_CONTEXT_DISABLE_THRESHOLD_PERCENT = 95;
 
-function parseGoalSubcommand(args: string): { sub: GoalSubcommand | undefined; rest: string } {
+function parseGoalSubcommand(args: string): {
+	sub: GoalSubcommand | undefined;
+	rest: string;
+} {
 	const trimmed = args.trim();
 	if (!trimmed) return { sub: undefined, rest: "" };
 	const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);
@@ -520,7 +525,9 @@ export class InteractiveMode implements InteractiveModeContext {
 	collabHost?: CollabHost;
 	collabGuest?: CollabGuestLink;
 
-	#pendingSlashCommands: SlashCommand[] = [];
+	#baseSlashCommands: SlashCommand[] = [];
+	#skillSlashCommands: SlashCommand[] = [];
+	#ompLiveReload: OmpLiveReloadController;
 	/** Built-in editor autocomplete provider, before extension wrapping. */
 	#baseAutocompleteProvider: AutocompleteProvider | undefined;
 	/** Extension-registered provider factories, applied in registration order (#4919). */
@@ -734,23 +741,31 @@ export class InteractiveMode implements InteractiveModeContext {
 		}));
 
 		// Build skill commands from session.skills (if enabled)
-		const skillCommandList: SlashCommand[] = [];
-		if (settings.get("skills.enableSkillCommands")) {
-			for (const skill of this.session.skills) {
-				const commandName = `skill:${skill.name}`;
-				this.skillCommands.set(commandName, {
-					filePath: skill.filePath,
-					isNative: skill._source?.level === "native",
-					name: skill.name,
-					baseDir: skill.baseDir,
-				});
-				skillCommandList.push({ name: commandName, description: skill.description });
-			}
-		}
+		this.#syncSkillCommandMap(this.session.skills);
 
 		const builtinCommands = buildTuiBuiltinSlashCommands({ ctx: this });
-		// Store pending commands for init() where file commands are loaded async
-		this.#pendingSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands, ...skillCommandList];
+		// Store base commands for runtime refreshes where file commands are loaded async.
+		this.#baseSlashCommands = [...builtinCommands, ...hookCommands, ...customCommands];
+
+		// Fork integration: this controller exists to support hot reloading for native OMP commands/skills.
+		this.#ompLiveReload = new OmpLiveReloadController(
+			{
+				onRefreshRequested: async () => {
+					await this.refreshRuntimeCommandState(this.sessionManager.getCwd());
+				},
+				onErrorStateChanged: (message: string | undefined) => {
+					this.setHookStatus(OMP_LIVE_RELOAD_STATUS_KEY, message ? theme.fg("warning", message) : undefined);
+					if (message) {
+						this.showWarning(message);
+					}
+				},
+			},
+			{
+				mode: this.settings.get("commands.liveReloadMode") as OmpLiveReloadMode,
+				projectDir: this.sessionManager.getCwd(),
+				userAgentDir: this.settings.getAgentDir(),
+			},
+		);
 
 		this.#uiHelpers = new UiHelpers(this);
 		this.#btwController = new BtwController(this);
@@ -858,11 +873,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		// from a subagent whose own `Settings` is an in-memory snapshot.
 		setAutoQaConsentHandler(() => this.#promptAutoQaConsent(), Settings.instance);
 
-		await logger.time(
-			"InteractiveMode.init:slashCommands",
-			this.refreshSlashCommandState.bind(this),
-			getProjectDir(),
-		);
+		const startupCwd = this.sessionManager.getCwd();
+		// Fork integration for hot reloading: initialize runtime state, then bind watchers for current cwd/mode.
+		await logger.time("InteractiveMode.init:runtimeCommands", () => this.refreshRuntimeCommandState(startupCwd));
+		await this.#syncOmpLiveReload({ cwd: startupCwd, triggerRefresh: false });
 
 		// Get current model info for welcome screen
 		const modelName = this.session.model?.name ?? "Unknown";
@@ -1097,7 +1111,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		// resolution order by skipping templates whose names already appear in any
 		// builtin/hook/custom/skill/file command token.
 		const reservedNames = new Set<string>();
-		for (const command of this.#pendingSlashCommands) {
+		for (const command of this.#baseSlashCommands) {
+			reservedNames.add(command.name);
+			for (const alias of command.aliases ?? []) reservedNames.add(alias);
+		}
+		for (const command of this.#skillSlashCommands) {
 			reservedNames.add(command.name);
 			for (const alias of command.aliases ?? []) reservedNames.add(alias);
 		}
@@ -1114,7 +1132,7 @@ export class InteractiveMode implements InteractiveModeContext {
 				description: template.description,
 			}));
 		this.#baseAutocompleteProvider = this.#inputController.createAutocompleteProvider(
-			[...this.#pendingSlashCommands, ...fileSlashCommands, ...promptTemplateCommands],
+			[...this.#baseSlashCommands, ...this.#skillSlashCommands, ...fileSlashCommands, ...promptTemplateCommands],
 			basePath,
 		);
 		this.#applyAutocompleteProvider();
@@ -1185,6 +1203,71 @@ export class InteractiveMode implements InteractiveModeContext {
 		setSessionTerminalTitle(this.sessionManager.getSessionName(), this.sessionManager.getCwd());
 		this.statusLine.invalidate();
 		this.ui.requestRender();
+	}
+
+	/** Refresh slash-command and skill runtime state from current discovery sources. */
+	async refreshRuntimeCommandState(cwd?: string): Promise<void> {
+		const basePath = cwd ?? this.sessionManager.getCwd();
+		resetCapabilities();
+		await this.#refreshSkillCommandState(basePath);
+		await this.refreshSlashCommandState(basePath);
+	}
+
+	#syncSkillCommandMap(skills: readonly Skill[]): void {
+		this.skillCommands.clear();
+		this.#skillSlashCommands = [];
+		if (!settings.get("skills.enableSkillCommands")) {
+			return;
+		}
+		for (const skill of skills) {
+			const commandName = `skill:${skill.name}`;
+			this.skillCommands.set(commandName, {
+				filePath: skill.filePath,
+				isNative: skill._source?.provider === "native",
+				name: skill.name,
+				baseDir: skill.baseDir,
+			});
+			this.#skillSlashCommands.push({
+				name: commandName,
+				description: skill.description,
+			});
+		}
+	}
+
+	async #refreshSkillCommandState(cwd: string): Promise<void> {
+		const skillSettings = this.session.skillsSettings ?? {};
+		const { skills, warnings } = await loadSkills({
+			...skillSettings,
+			cwd,
+		});
+		this.session.setSkills(skills, warnings);
+		this.#syncSkillCommandMap(skills);
+	}
+
+	async #syncOmpLiveReload(options: { cwd: string; triggerRefresh: boolean }): Promise<void> {
+		const mode = this.settings.get("commands.liveReloadMode") as OmpLiveReloadMode;
+		await this.#ompLiveReload.configure({
+			mode,
+			projectDir: options.cwd,
+			userAgentDir: this.settings.getAgentDir(),
+		});
+		if (mode === "omp" && options.triggerRefresh) {
+			await this.refreshRuntimeCommandState(options.cwd);
+		}
+	}
+
+	async syncOmpLiveReloadState(cwd?: string, options?: { triggerRefresh?: boolean }): Promise<void> {
+		await this.#syncOmpLiveReload({
+			cwd: cwd ?? this.sessionManager.getCwd(),
+			triggerRefresh: options?.triggerRefresh ?? false,
+		});
+	}
+
+	async handleReloadCommand(): Promise<void> {
+		const cwd = this.sessionManager.getCwd();
+		await this.syncOmpLiveReloadState(cwd, { triggerRefresh: false });
+		await this.refreshRuntimeCommandState(cwd);
+		await this.handleMCPCommand("/mcp reload");
 	}
 
 	async getUserInput(): Promise<SubmittedUserInput> {
@@ -2072,7 +2155,10 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		if (!sameModel) {
 			if (this.session.isStreaming) {
-				this.#pendingModelSwitch = { model: resolved.model, thinkingLevel: planThinkingLevel };
+				this.#pendingModelSwitch = {
+					model: resolved.model,
+					thinkingLevel: planThinkingLevel,
+				};
 				return;
 			}
 			try {
@@ -2394,7 +2480,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.goalModePaused = false;
 		const state = options.resume
 			? await this.session.goalRuntime.resumeGoal()
-			: await this.session.goalRuntime.createGoal({ objective: options.objective ?? "" });
+			: await this.session.goalRuntime.createGoal({
+					objective: options.objective ?? "",
+				});
 		await this.session.setActiveToolsByName(goalTools);
 		this.session.setGoalModeState(state);
 		this.goalModeEnabled = true;
@@ -3086,7 +3174,9 @@ export class InteractiveMode implements InteractiveModeContext {
 				return;
 			}
 			const objective = (
-				await this.showHookEditor("Goal objective", undefined, undefined, { promptStyle: true })
+				await this.showHookEditor("Goal objective", undefined, undefined, {
+					promptStyle: true,
+				})
 			)?.trim();
 			if (!objective) return;
 			await this.#startGoalFromObjective(objective);
@@ -3318,7 +3408,11 @@ export class InteractiveMode implements InteractiveModeContext {
 		}
 		const objective = rest.trim()
 			? rest.trim()
-			: (await this.showHookEditor("Goal objective", undefined, undefined, { promptStyle: true }))?.trim();
+			: (
+					await this.showHookEditor("Goal objective", undefined, undefined, {
+						promptStyle: true,
+					})
+				)?.trim();
 		if (!objective) return;
 		if (this.goalModeEnabled) {
 			await this.#replaceGoalFromObjective(objective);
@@ -3700,7 +3794,9 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#inputController.setupEditorSubmitHandler();
 
 		void this.refreshSlashCommandState().catch(error => {
-			logger.warn("Failed to refresh slash command state for custom editor", { error: String(error) });
+			logger.warn("Failed to refresh slash command state for custom editor", {
+				error: String(error),
+			});
 		});
 
 		this.updateEditorBorderColor();

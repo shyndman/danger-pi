@@ -350,6 +350,7 @@ export interface InteractiveModeContext {
 	handleCompactCommand(customInstructions?: string, mode?: CompactMode): Promise<CompactionOutcome>;
 	handleHandoffCommand(customInstructions?: string): Promise<void>;
 	handleShakeCommand(mode: ShakeMode): Promise<void>;
+	handleReloadCommand(): Promise<void>;
 	handleMoveCommand(targetPath?: string): Promise<void>;
 	handleRenameCommand(title: string): Promise<void>;
 	handleMemoryCommand(text: string): Promise<void>;
@@ -361,6 +362,8 @@ export interface InteractiveModeContext {
 	openInBrowser(urlOrPath: string): void;
 	refreshSlashCommandState(cwd?: string): Promise<void>;
 	applyCwdChange(newCwd: string): Promise<void>;
+	refreshRuntimeCommandState(cwd?: string): Promise<void>;
+	syncOmpLiveReloadState(cwd?: string, options?: { triggerRefresh?: boolean }): Promise<void>;
 
 	// Selector handling
 	showSettingsSelector(): void;

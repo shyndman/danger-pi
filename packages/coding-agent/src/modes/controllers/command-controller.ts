@@ -999,6 +999,9 @@ export class CommandController {
 		}
 
 		await this.ctx.applyCwdChange(resolvedPath);
+		// Fork integration: after /move, refresh runtime state so OMP hot reloading follows the new cwd.
+		await this.ctx.refreshRuntimeCommandState(resolvedPath);
+		await this.ctx.syncOmpLiveReloadState(resolvedPath);
 
 		this.ctx.updateEditorBorderColor();
 		await this.ctx.reloadTodos();
