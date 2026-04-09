@@ -15,7 +15,6 @@ import type {
 	ExtensionWidgetOptions,
 } from "../extensibility/extensions";
 import type { CompactOptions } from "../extensibility/extensions/types";
-import type { Skill } from "../extensibility/skills";
 import type { MCPManager } from "../mcp";
 import type { PlanApprovalDetails } from "../plan-mode/approved-plan";
 import type { AgentSession } from "../session/agent-session";
@@ -71,6 +70,19 @@ export type SubmittedUserInput = {
 	cancelled: boolean;
 	started: boolean;
 };
+
+/**
+ * Resolved target for a `/skill:` command.
+ *
+ * The map stores only what the input layer needs at invocation time: where the
+ * skill lives on disk and whether native OMP-only body interpolation is allowed.
+ */
+export interface SkillCommandBinding {
+	filePath: string;
+	isNative: boolean;
+	name: string;
+	baseDir: string;
+}
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
 
@@ -210,7 +222,7 @@ export interface InteractiveModeContext {
 	lastStatusSpacer: Spacer | undefined;
 	lastStatusText: Text | undefined;
 	fileSlashCommands: Set<string>;
-	skillCommands: Map<string, Skill>;
+	skillCommands: Map<string, SkillCommandBinding>;
 	oauthManualInput: OAuthManualInputManager;
 	todoPhases: TodoPhase[];
 

@@ -3,17 +3,18 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
-import type { Skill } from "../src/extensibility/skills";
 import type { FileSlashCommand } from "../src/extensibility/slash-commands";
 import { InputController } from "../src/modes/controllers/input-controller";
-import type { InteractiveModeContext, SubmittedUserInput } from "../src/modes/types";
+import type { InteractiveModeContext, SkillCommandBinding, SubmittedUserInput } from "../src/modes/types";
 import * as builtinRegistry from "../src/slash-commands/builtin-registry";
 
-async function createSkillCommand(body = "Follow the skill instructions."): Promise<Skill> {
+async function createSkillCommand(
+	body = "Follow the skill instructions.",
+): Promise<{ filePath: string; isNative: boolean; name: string; baseDir: string }> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-skill-"));
 	const filePath = path.join(dir, "demo.md");
 	await Bun.write(filePath, body);
-	return { name: "demo", description: "", filePath, baseDir: dir, source: "test" };
+	return { filePath, isNative: false, name: "demo", baseDir: dir };
 }
 
 class StubEditor {
@@ -130,7 +131,7 @@ function createTestContext() {
 		isBackgrounded: false,
 		pendingBashMessages: [],
 		pendingPythonMessages: [],
-		skillCommands: new Map<string, string>(),
+		skillCommands: new Map<string, SkillCommandBinding>(),
 		startPendingSubmission,
 		showError,
 		showWarning,

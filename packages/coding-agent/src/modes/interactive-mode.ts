@@ -69,7 +69,6 @@ import type {
 	ExtensionWidgetOptions,
 } from "../extensibility/extensions";
 import type { CompactOptions } from "../extensibility/extensions/types";
-import type { Skill } from "../extensibility/skills";
 import { loadSlashCommands } from "../extensibility/slash-commands";
 import { type GuidedGoalMessage, runGuidedGoalTurn } from "../goals/guided-setup";
 import type { Goal, GoalModeState } from "../goals/state";
@@ -190,6 +189,7 @@ import type {
 	InteractiveModeContext,
 	InteractiveModeInitOptions,
 	InteractiveSelectorDialogOptions,
+	SkillCommandBinding,
 	SubmittedUserInput,
 	TodoItem,
 	TodoPhase,
@@ -515,7 +515,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	lastStatusSpacer: Spacer | undefined = undefined;
 	lastStatusText: Text | undefined = undefined;
 	fileSlashCommands: Set<string> = new Set();
-	skillCommands: Map<string, Skill> = new Map();
+	skillCommands: Map<string, SkillCommandBinding> = new Map();
 	oauthManualInput: OAuthManualInputManager = new OAuthManualInputManager();
 	collabHost?: CollabHost;
 	collabGuest?: CollabGuestLink;
@@ -738,7 +738,12 @@ export class InteractiveMode implements InteractiveModeContext {
 		if (settings.get("skills.enableSkillCommands")) {
 			for (const skill of this.session.skills) {
 				const commandName = `skill:${skill.name}`;
-				this.skillCommands.set(commandName, skill);
+				this.skillCommands.set(commandName, {
+					filePath: skill.filePath,
+					isNative: skill._source?.level === "native",
+					name: skill.name,
+					baseDir: skill.baseDir,
+				});
 				skillCommandList.push({ name: commandName, description: skill.description });
 			}
 		}

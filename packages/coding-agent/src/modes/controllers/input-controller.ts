@@ -3,8 +3,9 @@ import * as path from "node:path";
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { type AutocompleteProvider, matchesKey, type SlashCommand } from "@oh-my-pi/pi-tui";
-import { $env, isEnoent, logger, sanitizeText } from "@oh-my-pi/pi-utils";
+import { $env, isEnoent, logger, parseFrontmatter, sanitizeText } from "@oh-my-pi/pi-utils";
 import { isSettingsInitialized, settings } from "../../config/settings";
+import { interpolateShellExpressions } from "../../extensibility/shell-interpolation";
 import { resolveLocalRoot } from "../../internal-urls";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
 import { extractImagePathFromText } from "../../modes/components/custom-editor";
@@ -14,7 +15,7 @@ import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { materializeImageReferenceLinks, shiftImageMarkers } from "../../modes/image-references";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
 import { parseQueueShorthand, splitQueuedMessages } from "../../modes/queue-input";
-import { invokeSkillCommandFromText, isKnownSkillCommand } from "../../modes/skill-command";
+import { isKnownSkillCommand } from "../../modes/skill-command";
 import type { InteractiveModeContext } from "../../modes/types";
 import manualContinuePrompt from "../../prompts/system/manual-continue.md" with { type: "text" };
 import {
@@ -771,7 +772,11 @@ export class InputController {
 					this.ctx.queueCompactionMessage(text, "steer", images);
 					return;
 				}
-				if (await this.#invokeSkillCommand(text, "steer", inputImages, inputImageLinks)) {
+				const skillOutcome = await this.#handleSkillCommand(text, {
+					addToHistory: true,
+					streamingBehavior: "steer",
+				});
+				if (skillOutcome !== "not-handled") {
 					return;
 				}
 			}
@@ -1141,56 +1146,6 @@ export class InputController {
 			this.ctx.showStatus(`Restored ${restored} queued message${restored > 1 ? "s" : ""} to editor`);
 		}
 	}
-
-	/**
-	 * Dispatch a `/skill:<name> [args]` invocation through `promptCustomMessage`
-	 * using the supplied `streamingBehavior`. Returns false when the text is not
-	 * a registered skill command and leaves the editor state untouched. Registered
-	 * skills consume the full composer draft (text plus pending images) before
-	 * dispatch; if dispatch rejects, the draft is restored so the user can retry.
-	 */
-	async #invokeSkillCommand(
-		text: string,
-		streamingBehavior: "steer" | "followUp",
-		images?: ImageContent[],
-		imageLinks?: (string | undefined)[],
-	): Promise<boolean> {
-		if (!isKnownSkillCommand(this.ctx, text)) return false;
-		const draftImages = images && images.length > 0 ? [...images] : undefined;
-		const draftImageLinks = draftImages && imageLinks && imageLinks.length > 0 ? [...imageLinks] : undefined;
-		const restoreDraft = () => {
-			this.ctx.editor.setText(text);
-			if (draftImages && draftImages.length > 0) {
-				this.ctx.editor.pendingImages = [...draftImages];
-				this.ctx.editor.pendingImageLinks = draftImageLinks
-					? [...draftImageLinks]
-					: draftImages.map(() => undefined);
-				this.ctx.editor.imageLinks = this.ctx.editor.pendingImageLinks;
-			}
-		};
-
-		this.ctx.editor.clearDraft(text);
-		try {
-			const handled = await invokeSkillCommandFromText(this.ctx, text, streamingBehavior, {
-				images: draftImages,
-				propagateErrors: true,
-			});
-			if (!handled) {
-				restoreDraft();
-				return false;
-			}
-			return true;
-		} catch (error) {
-			restoreDraft();
-			this.ctx.showError(error instanceof Error ? error.message : String(error));
-			return true;
-		} finally {
-			if (this.ctx.session.isStreaming) {
-				this.ctx.updatePendingMessagesDisplay();
-				this.ctx.ui.requestRender();
-			}
-		}
-	}
 	async handleRetry(): Promise<void> {
 		if (this.ctx.collabGuest) {
 			this.ctx.showStatus("/retry is host-only during a collab session");
@@ -1368,7 +1323,12 @@ export class InputController {
 		// Skill commands invoke through the custom-message path regardless of
 		// which keybinding submitted them. Enter routes them as `steer`;
 		// Ctrl+Enter (this handler) routes them as `followUp`.
-		if (text && (await this.#invokeSkillCommand(text, "followUp", images, imageLinks))) {
+		if (
+			(await this.#handleSkillCommand(text, {
+				addToHistory: true,
+				streamingBehavior: "followUp",
+			})) !== "not-handled"
+		) {
 			return;
 		}
 
@@ -1813,36 +1773,45 @@ export class InputController {
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1).trim();
-		const skill = this.ctx.skillCommands?.get(commandName);
-		if (!skill) {
+		const skillCommand = this.ctx.skillCommands?.get(commandName);
+		if (!skillCommand) {
 			return "not-handled";
 		}
-		const skillPath = skill.filePath;
+		const { filePath: skillPath, isNative } = skillCommand;
+		const images = this.ctx.editor.pendingImages.length > 0 ? [...this.ctx.editor.pendingImages] : undefined;
 		if (options?.addToHistory !== false) {
 			this.ctx.editor.addToHistory(text);
 		}
-		this.ctx.editor.setText("");
+		this.ctx.editor.clearDraft();
 		try {
-			const content = await Bun.file(skillPath).text();
-			const body = content.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
-			const metaLines = [`Skill: ${skillPath}`];
+			const skillFileContent = await Bun.file(skillPath).text();
+			const { body } = parseFrontmatter(skillFileContent, { source: skillPath, level: "fatal" });
+			const skillName = commandName.slice("skill:".length);
+			const expandedBody = isNative
+				? await interpolateShellExpressions({
+						body,
+						cwd: this.ctx.sessionManager.getCwd(),
+						sourceLabel: `skill:${skillName}`,
+					})
+				: body;
+			const metaLines = [`Skill: ${skillPath}`, `Do not read SKILL.md for ${skillName}.`];
 			if (args) {
 				metaLines.push(`User: ${args}`);
 			}
-			const message = `${body}\n\n---\n\n${metaLines.join("\n")}`;
-			const skillName = commandName.slice("skill:".length);
+			const message = `${expandedBody}\n\n---\n\n${metaLines.join("\n")}`;
+			const content = images ? [{ type: "text" as const, text: message }, ...images] : message;
 			const details: SkillPromptDetails = {
 				name: skillName || commandName,
 				path: skillPath,
 				args: args || undefined,
-				lineCount: body ? body.split("\n").length : 0,
+				lineCount: expandedBody ? expandedBody.split("\n").length : 0,
 			};
 			if (options?.suppressTurn) {
 				const wasStreaming = this.ctx.session.isStreaming;
 				await this.ctx.session.sendCustomMessage(
 					{
 						customType: SKILL_PROMPT_MESSAGE_TYPE,
-						content: message,
+						content,
 						display: true,
 						details,
 						attribution: "user",
@@ -1854,7 +1823,7 @@ export class InputController {
 				await this.ctx.session.promptCustomMessage(
 					{
 						customType: SKILL_PROMPT_MESSAGE_TYPE,
-						content: message,
+						content,
 						display: true,
 						details,
 						attribution: "user",
