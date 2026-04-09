@@ -39,7 +39,6 @@ export interface SSHHostInfo {
 
 const CONTROL_DIR = getSshControlDir();
 const CONTROL_PATH = path.join(CONTROL_DIR, "%C.sock");
-const HOST_INFO_DIR = getRemoteHostDir();
 const HOST_INFO_VERSION = 4;
 
 const activeHosts = new Map<string, SSHConnectionTarget>();
@@ -62,7 +61,7 @@ function ensureControlDir() {
 }
 
 function getHostInfoPath(name: string): string {
-	return path.join(HOST_INFO_DIR, `${sanitizeHostName(name)}.json`);
+	return path.join(getRemoteHostDir(), `${sanitizeHostName(name)}.json`);
 }
 
 async function deleteHostInfoFromDisk(hostName: string): Promise<void> {

@@ -7731,7 +7731,7 @@ export class AgentSession {
 		this.#slashCommands = [...slashCommands];
 	}
 
-	/** Replace loaded skills and warnings for runtime reload flows. */
+	/** Replace loaded skills and warnings after runtime rediscovery. */
 	setSkills(skills: Skill[], warnings: SkillWarning[]): void {
 		this.#skills = [...skills];
 		this.#skillWarnings = [...warnings];
