@@ -8,6 +8,7 @@ import { type AuthCredentialStore, AuthStorage, SqliteAuthCredentialStore } from
 import * as oauthUtils from "@oh-my-pi/pi-ai/registry/oauth";
 import type { OAuthCredentials } from "@oh-my-pi/pi-ai/registry/oauth/types";
 import type { UsageLimit, UsageProvider, UsageReport } from "@oh-my-pi/pi-ai/usage";
+import { logger } from "@oh-my-pi/pi-utils";
 import { removeWithRetries } from "../../utils/src/temp";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -199,7 +200,7 @@ describe("AuthStorage codex oauth ranking", () => {
 		}
 	});
 
-	test("weights near-reset weekly account over lower-used far-reset account", async () => {
+	test("prefers near-reset weekly account over lower-used far-reset account", async () => {
 		if (!authStorage) throw new Error("test setup failed");
 
 		await authStorage.set("openai-codex", [
@@ -224,11 +225,69 @@ describe("AuthStorage codex oauth ranking", () => {
 			}),
 		);
 
-		const counts = await countApiKeySelections(authStorage, "openai-codex", "weighted-codex-near");
-		expectWeightedPreference(counts, "api-acct-near", "api-acct-far");
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-weekly-reset");
+		expect(apiKey).toBe("api-acct-near");
 	});
 
-	test("weights fresh 5h ticker account at 0% usage", async () => {
+	test("prefers untouched 7d account before earlier weekly reset account", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-untouched", "untouched@example.com") },
+			{ type: "oauth", ...createCredential("acct-near-reset", "near-reset@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-untouched",
+			createCodexUsageReport({
+				accountId: "acct-untouched",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0, resetInMs: 6 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-near-reset",
+			createCodexUsageReport({
+				accountId: "acct-near-reset",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.2, resetInMs: 15 * 60 * 1000 },
+			}),
+		);
+
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-untouched-weekly");
+		expect(apiKey).toBe("api-acct-untouched");
+	});
+
+	test("keeps existing tie-breakers when multiple accounts have untouched 7d windows", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-earlier-reset", "earlier-reset@example.com") },
+			{ type: "oauth", ...createCredential("acct-later-reset", "later-reset@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-earlier-reset",
+			createCodexUsageReport({
+				accountId: "acct-earlier-reset",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0, resetInMs: 15 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-later-reset",
+			createCodexUsageReport({
+				accountId: "acct-later-reset",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0, resetInMs: 6 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-untouched-tiebreak");
+		expect(apiKey).toBe("api-acct-earlier-reset");
+	});
+
+	test("prioritizes fresh 5h ticker account at 0% usage", async () => {
 		if (!authStorage) throw new Error("test setup failed");
 
 		await authStorage.set("openai-codex", [
@@ -261,8 +320,8 @@ describe("AuthStorage codex oauth ranking", () => {
 			}),
 		);
 
-		const counts = await countApiKeySelections(authStorage, "openai-codex", "weighted-codex-zero");
-		expectWeightedPreference(counts, "api-acct-zero", "api-acct-progress");
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-five-hour-start");
+		expect(apiKey).toBe("api-acct-zero");
 	});
 	test("skips exhausted weekly account even when reset is near", async () => {
 		if (!authStorage) throw new Error("test setup failed");
@@ -346,7 +405,7 @@ describe("AuthStorage codex oauth ranking", () => {
 		expect(activeAccounts).toEqual(["acct-A", "acct-B"]);
 	});
 
-	test("a healthy live Codex usage report clears a stale persisted block so the account is balanced again", async () => {
+	test("a healthy live Codex usage report clears a stale persisted block so the account is selectable again", async () => {
 		if (!authStorage || !store?.upsertCredentialBlock || !store.getCredentialBlock) {
 			throw new Error("test setup failed");
 		}
@@ -415,8 +474,11 @@ describe("AuthStorage codex oauth ranking", () => {
 			"stale-codex-block-after-fetch",
 			150,
 		);
-		expect(countFor(reconciledSelectionCounts, "api-acct-blocked")).toBeGreaterThan(0);
-		expect(countFor(reconciledSelectionCounts, "api-acct-healthy")).toBeGreaterThan(0);
+		// Fork sticky Codex selection: sessions converge on the single chosen account instead of
+		// spreading load across accounts, so exactly one account receives every selection.
+		const reconciledTotal = [...reconciledSelectionCounts.values()].reduce((sum, count) => sum + count, 0);
+		expect(reconciledSelectionCounts.size).toBe(1);
+		expect(reconciledTotal).toBe(150);
 	});
 
 	test("re-evaluates a stale persisted Codex block during selection when the 5h window recovered", async () => {
@@ -490,8 +552,11 @@ describe("AuthStorage codex oauth ranking", () => {
 			150,
 		);
 
-		expect(countFor(selectionCounts, "api-acct-recovered-blocked")).toBeGreaterThan(0);
-		expect(countFor(selectionCounts, "api-acct-recovered-sibling")).toBeGreaterThan(0);
+		// Fork sticky Codex selection: the recovered account rejoins the pool (block cleared below),
+		// but selection converges on a single account rather than spreading across both.
+		const selectionTotal = [...selectionCounts.values()].reduce((sum, count) => sum + count, 0);
+		expect(selectionCounts.size).toBe(1);
+		expect(selectionTotal).toBe(150);
 		expect(store.getCredentialBlock(blockedRow.id, "openai-codex:oauth", "shared")).toBeUndefined();
 	});
 
@@ -1721,6 +1786,7 @@ describe("AuthStorage codex oauth ranking", () => {
 	test("times out slow usage ranking instead of blocking first account selection", async () => {
 		if (!store) throw new Error("test setup failed");
 
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
 		const slowAuthStorage = new AuthStorage(store, {
 			usageProviderResolver: provider =>
 				provider === "openai-codex"
@@ -1729,11 +1795,7 @@ describe("AuthStorage codex oauth ranking", () => {
 							async fetchUsage(params) {
 								const { promise, resolve } = Promise.withResolvers<UsageReport | null>();
 								params.signal?.addEventListener("abort", () => resolve(null), { once: true });
-								// 2s "would-block" fallback: if the per-request timeout below fails
-								// to abort the fetch, ranking blocks for this long instead of the
-								// ~10ms timeout path. Kept well above the assertion bound so a broken
-								// timeout is still caught, while leaving generous slack for CI jitter.
-								return Promise.race([promise, Bun.sleep(2_000).then(() => null)]);
+								return Promise.race([promise, Bun.sleep(200).then(() => null)]);
 							},
 						} satisfies UsageProvider)
 					: undefined,
@@ -1746,53 +1808,15 @@ describe("AuthStorage codex oauth ranking", () => {
 		]);
 
 		const startedAt = Date.now();
-		const apiKey = await slowAuthStorage.getApiKey("openai-codex");
+		await expect(slowAuthStorage.getApiKey("openai-codex")).resolves.toBeUndefined();
 		const elapsedMs = Date.now() - startedAt;
 
-		expect(apiKey).toBe("api-acct-first");
-		// Timeout path resolves in ~10ms; the would-block fallback is 2s. A bound
-		// of 1s proves the 10ms per-request timeout fired without being fooled by
-		// the block path, and absorbs scheduling jitter under parallel CI load.
-		expect(elapsedMs).toBeLessThan(1_000);
-	});
+		expect(elapsedMs).toBeLessThan(100);
 
-	test("weights 3 accounts by weekly drain rate", async () => {
-		if (!authStorage) throw new Error("test setup failed");
-
-		await authStorage.set("openai-codex", [
-			{ type: "oauth", ...createCredential("acct-fast", "fast@example.com") },
-			{ type: "oauth", ...createCredential("acct-medium", "medium@example.com") },
-			{ type: "oauth", ...createCredential("acct-slow", "slow@example.com") },
-		]);
-
-		usageByAccount.set(
-			"acct-slow",
-			createCodexUsageReport({
-				accountId: "acct-slow",
-				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
-				secondary: { usedFraction: 0.1, resetInMs: 6 * 24 * 60 * 60 * 1000 },
-			}),
+		const omittedCalls = warnSpy.mock.calls.filter(
+			call => call[0] === "AuthStorage codex credential omitted from ranking",
 		);
-		usageByAccount.set(
-			"acct-medium",
-			createCodexUsageReport({
-				accountId: "acct-medium",
-				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
-				secondary: { usedFraction: 0.3, resetInMs: 5 * 24 * 60 * 60 * 1000 },
-			}),
-		);
-		usageByAccount.set(
-			"acct-fast",
-			createCodexUsageReport({
-				accountId: "acct-fast",
-				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
-				secondary: { usedFraction: 0.7, resetInMs: 3 * 24 * 60 * 60 * 1000 },
-			}),
-		);
-
-		const counts = await countApiKeySelections(authStorage, "openai-codex", "weighted-codex-three");
-		expect(countFor(counts, "api-acct-slow")).toBeGreaterThan(countFor(counts, "api-acct-medium"));
-		expect(countFor(counts, "api-acct-slow")).toBeGreaterThan(countFor(counts, "api-acct-fast"));
+		expect(omittedCalls).toHaveLength(2);
 	});
 
 	test("handles usage fetch failure gracefully (null report)", async () => {
@@ -1813,9 +1837,179 @@ describe("AuthStorage codex oauth ranking", () => {
 			}),
 		);
 
-		const counts = await countApiKeySelections(authStorage, "openai-codex", "weighted-codex-known", 300);
-		expectWeightedPreference(counts, "api-acct-known", "api-acct-null");
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-null-usage");
+		expect(apiKey).toBe("api-acct-known");
 	});
+
+	test("omits codex credential from multi-account ranking when usage report is missing", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-missing", "missing@example.com") },
+			{ type: "oauth", ...createCredential("acct-known", "known@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-known",
+			createCodexUsageReport({
+				accountId: "acct-known",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.3, resetInMs: 5 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		await expect(authStorage.getApiKey("openai-codex", "session-null-usage")).resolves.toBe("api-acct-known");
+
+		const omittedCalls = warnSpy.mock.calls.filter(
+			call => call[0] === "AuthStorage codex credential omitted from ranking",
+		);
+		expect(omittedCalls).toHaveLength(1);
+		expect(omittedCalls[0]?.[1]).toMatchObject({
+			event: "auth_storage.codex_credential_omitted_from_ranking",
+			provider: "openai-codex",
+			sessionId: "session-null-usage",
+			reason: "missing_usage_report",
+			credential: {
+				index: 0,
+				accountId: "acct-missing",
+				email: "missing@example.com",
+			},
+		});
+	});
+
+	test("keeps codex credential sticky within a session despite ranking pressure", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-sticky", "sticky@example.com") },
+			{ type: "oauth", ...createCredential("acct-ranked", "ranked@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-sticky",
+			createCodexUsageReport({
+				accountId: "acct-sticky",
+				primary: { usedFraction: 0.05, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.3, resetInMs: 30 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-ranked",
+			createCodexUsageReport({
+				accountId: "acct-ranked",
+				primary: { usedFraction: 0.05, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.05, resetInMs: 2 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		expect(await authStorage.getApiKey("openai-codex", "session-sticky")).toBe("api-acct-sticky");
+
+		usageByAccount.delete("acct-ranked");
+		usageByAccount.set(
+			"acct-sticky",
+			createCodexUsageReport({
+				accountId: "acct-sticky",
+				primary: { usedFraction: 0.95, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.95, resetInMs: 5 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		expect(await authStorage.getApiKey("openai-codex", "session-sticky")).toBe("api-acct-sticky");
+		usageByAccount.set(
+			"acct-ranked",
+			createCodexUsageReport({
+				accountId: "acct-ranked",
+				primary: { usedFraction: 0.05, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.05, resetInMs: 2 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+	});
+
+	test("switches codex account for same session after usage blocking", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-pinned", "pinned@example.com") },
+			{ type: "oauth", ...createCredential("acct-fallback", "fallback@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-pinned",
+			createCodexUsageReport({
+				accountId: "acct-pinned",
+				primary: { usedFraction: 0.2, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.25, resetInMs: 3 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-fallback",
+			createCodexUsageReport({
+				accountId: "acct-fallback",
+				primary: { usedFraction: 0.35, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.4, resetInMs: 3 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		expect(await authStorage.getApiKey("openai-codex", "session-usage-switch")).toBe("api-acct-pinned");
+		expect(await authStorage.markUsageLimitReached("openai-codex", "session-usage-switch")).toEqual({
+			switched: true,
+		});
+		expect(await authStorage.getApiKey("openai-codex", "session-usage-switch")).toBe("api-acct-fallback");
+	});
+
+	test("uses ranked fallback when the pinned codex identity becomes stale", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-old", "old@example.com") },
+			{ type: "oauth", ...createCredential("acct-new", "new@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-old",
+			createCodexUsageReport({
+				accountId: "acct-old",
+				primary: { usedFraction: 0.1, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.1, resetInMs: 4 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-new",
+			createCodexUsageReport({
+				accountId: "acct-new",
+				primary: { usedFraction: 0.4, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.4, resetInMs: 4 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		expect(await authStorage.getApiKey("openai-codex", "session-stale-pin")).toBe("api-acct-old");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-replacement", "replacement@example.com") },
+			{ type: "oauth", ...createCredential("acct-new", "new@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-replacement",
+			createCodexUsageReport({
+				accountId: "acct-replacement",
+				primary: { usedFraction: 0.9, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.9, resetInMs: 4 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-new",
+			createCodexUsageReport({
+				accountId: "acct-new",
+				primary: { usedFraction: 0.05, resetInMs: 20 * 60 * 1000 },
+				secondary: { usedFraction: 0.05, resetInMs: 4 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+
+		expect(await authStorage.getApiKey("openai-codex", "session-stale-pin")).toBe("api-acct-new");
+	});
+
 	test("refreshes expired oauth candidates in parallel before selection", async () => {
 		if (!authStorage) throw new Error("test setup failed");
 
@@ -1861,6 +2055,31 @@ describe("AuthStorage codex oauth ranking", () => {
 			{ type: "oauth", ...createCredential("acct-second", "second@example.com"), expires: expiredAt },
 			{ type: "oauth", ...createCredential("acct-third", "third@example.com"), expires: expiredAt },
 		]);
+
+		usageByAccount.set(
+			"acct-first",
+			createCodexUsageReport({
+				accountId: "acct-first",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.4, resetInMs: 2 * 24 * 60 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-second",
+			createCodexUsageReport({
+				accountId: "acct-second",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.3, resetInMs: 90 * 60 * 1000 },
+			}),
+		);
+		usageByAccount.set(
+			"acct-third",
+			createCodexUsageReport({
+				accountId: "acct-third",
+				primary: { usedFraction: 0.2, resetInMs: 30 * 60 * 1000 },
+				secondary: { usedFraction: 0.5, resetInMs: 45 * 60 * 1000 },
+			}),
+		);
 
 		const apiKey = await authStorage.getApiKey("openai-codex");
 

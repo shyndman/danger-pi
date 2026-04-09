@@ -917,12 +917,14 @@ function resolveDefaultRankingStrategy(provider: Provider): CredentialRankingStr
 	return DEFAULT_RANKING_STRATEGIES.get(provider);
 }
 
+const CODEX_PROVIDER = "openai-codex";
+
 function parseUsageCacheEntry<T>(raw: string): UsageCacheEntry<T> | undefined {
 	try {
-		const parsed = JSON.parse(raw) as { value?: T; expiresAt?: unknown };
+		const parsed = JSON.parse(raw) as { value?: T | null; expiresAt?: unknown };
 		const expiresAt = typeof parsed.expiresAt === "number" ? parsed.expiresAt : undefined;
 		if (!expiresAt || !Number.isFinite(expiresAt)) return undefined;
-		return { value: parsed.value as T, expiresAt };
+		return { value: (parsed.value ?? (null as unknown as T)) as T, expiresAt };
 	} catch {
 		return undefined;
 	}
@@ -1013,13 +1015,18 @@ class AuthStorageUsageCache implements UsageCache {
 	}
 
 	getStale<T>(key: string): UsageCacheEntry<T> | undefined {
-		const raw = this.store.getCache(`${USAGE_CACHE_PREFIX}${key}`, { includeExpired: true });
+		const raw = this.store.getCache(`${USAGE_CACHE_PREFIX}${key}`, {
+			includeExpired: true,
+		});
 		if (!raw) return undefined;
 		return parseUsageCacheEntry<T>(raw);
 	}
 
 	set<T>(key: string, entry: UsageCacheEntry<T>): void {
-		const payload = JSON.stringify({ value: entry.value, expiresAt: entry.expiresAt });
+		const payload = JSON.stringify({
+			value: entry.value ?? null,
+			expiresAt: entry.expiresAt,
+		});
 		const durableExpiresAt =
 			entry.value === null ? entry.expiresAt : Math.max(entry.expiresAt, Date.now() + USAGE_LAST_GOOD_RETENTION_MS);
 		this.store.setCache(`${USAGE_CACHE_PREFIX}${key}`, payload, Math.floor(durableExpiresAt / 1000));
@@ -1049,6 +1056,8 @@ type RankedOAuthCandidate = OAuthCandidate & {
 	blockedUntil?: number;
 	hasPriorityBoost: boolean;
 	planPriority: number;
+	hasUntouchedSecondaryWindow: boolean;
+	secondaryResetAt?: number;
 	secondaryUsed: number;
 	secondaryDrainRate: number;
 	primaryUsed: number;
@@ -1191,7 +1200,10 @@ export class AuthStorage {
 			try {
 				listener(this.#generation);
 			} catch (error) {
-				logger.debug("AuthStorage generation listener failed", { reason, error: String(error) });
+				logger.debug("AuthStorage generation listener failed", {
+					reason,
+					error: String(error),
+				});
 			}
 		}
 	}
@@ -1706,6 +1718,26 @@ export class AuthStorage {
 		return fallback;
 	}
 
+	#logCodexCredentialOmittedFromRanking(args: {
+		sessionId: string | undefined;
+		selection: { credential: OAuthCredential; index: number };
+		reason: "missing_usage_report";
+		modelId?: string;
+	}): void {
+		logger.warn("AuthStorage codex credential omitted from ranking", {
+			event: "auth_storage.codex_credential_omitted_from_ranking",
+			provider: CODEX_PROVIDER,
+			sessionId: args.sessionId,
+			reason: args.reason,
+			modelId: args.modelId,
+			credential: {
+				index: args.selection.index,
+				accountId: args.selection.credential.accountId,
+				email: args.selection.credential.email,
+			},
+		});
+	}
+
 	/**
 	 * Clears round-robin and session assignment state for a provider.
 	 * Called when credentials are added/removed to prevent stale index references.
@@ -1822,7 +1854,10 @@ export class AuthStorage {
 		event: CredentialDisabledEvent,
 	): void {
 		const logListenerError = (error: unknown): void => {
-			logger.warn("onCredentialDisabled listener threw", { provider: event.provider, error: String(error) });
+			logger.warn("onCredentialDisabled listener threw", {
+				provider: event.provider,
+				error: String(error),
+			});
 		};
 		try {
 			const result = listener(event);
@@ -1852,7 +1887,10 @@ export class AuthStorage {
 			: this.#store.replaceAuthCredentialsForProvider(provider, deduped);
 		this.#setStoredCredentials(
 			provider,
-			stored.map(record => ({ id: record.id, credential: record.credential })),
+			stored.map(record => ({
+				id: record.id,
+				credential: record.credential,
+			})),
 		);
 		this.#resetProviderAssignments(provider);
 	}
@@ -2623,7 +2661,11 @@ export class AuthStorage {
 								if (disabled) {
 									this.#usageLogger?.warn(
 										"Usage credential refresh failed definitively; credential disabled",
-										{ provider: request.provider, credentialId, error: errorMsg },
+										{
+											provider: request.provider,
+											credentialId,
+											error: errorMsg,
+										},
 									);
 									// Neutralize last-good for this cache key: write a null
 									// entry with an immediately-elapsed expiry so a future
@@ -2686,7 +2728,10 @@ export class AuthStorage {
 				// per source IP regardless of account, and synchronized 5-credential
 				// fan-out trips 429s every cycle. With ±25% jitter on TTL the refresh
 				// times decorrelate within a few cycles.
-				this.#usageCache.set(cacheKey, { value: report, expiresAt: Date.now() + USAGE_REPORT_TTL_MS + ttlJitter });
+				this.#usageCache.set(cacheKey, {
+					value: report,
+					expiresAt: Date.now() + USAGE_REPORT_TTL_MS + ttlJitter,
+				});
 				this.#recordUsageHistory(request, report);
 				this.#reconcileCodexUsageBlock(request, report);
 				return report;
@@ -2991,7 +3036,9 @@ export class AuthStorage {
 		const base = sorted[0];
 		const mergedLimits = [...base.limits];
 		const limitIds = new Set(mergedLimits.map(limit => limit.id));
-		const mergedMetadata: Record<string, unknown> = { ...(base.metadata ?? {}) };
+		const mergedMetadata: Record<string, unknown> = {
+			...(base.metadata ?? {}),
+		};
 		let fetchedAt = base.fetchedAt;
 
 		for (const report of sorted.slice(1)) {
@@ -3489,7 +3536,7 @@ export class AuthStorage {
 		return Math.min(Math.max(usedFraction, 0), 1);
 	}
 
-	/** Computes `usedFraction / elapsedHours` — consumption rate per hour within the current window. Lower drain rate = less pressure = preferred. */
+	/** Computes `usedFraction / elapsedHours` - consumption rate per hour within the current window. Lower drain rate = less pressure = preferred. */
 	#computeWindowDrainRate(limit: UsageLimit | undefined, nowMs: number, fallbackDurationMs: number): number {
 		const usedFraction = this.#normalizeUsageFraction(limit);
 		const durationMs = limit?.window?.durationMs ?? fallbackDurationMs;
@@ -3516,6 +3563,7 @@ export class AuthStorage {
 	#compareRankedOAuthCandidatePriority(
 		left: RankedOAuthCandidate,
 		right: RankedOAuthCandidate,
+		provider: string,
 		planRequirement: OpenAICodexPlanRequirement,
 	): number {
 		if (left.blocked !== right.blocked) return left.blocked ? 1 : -1;
@@ -3527,6 +3575,16 @@ export class AuthStorage {
 		}
 		if (planRequirement !== "none" && left.planPriority !== right.planPriority) {
 			return left.planPriority - right.planPriority;
+		}
+		// Codex-only: start the clock on a fresh long window, then prefer the soonest-renewing
+		// account so renewal throughput is maximized. Deterministic; missing reset data sorts last.
+		if (provider === CODEX_PROVIDER && left.hasUntouchedSecondaryWindow !== right.hasUntouchedSecondaryWindow) {
+			return left.hasUntouchedSecondaryWindow ? -1 : 1;
+		}
+		if (provider === CODEX_PROVIDER) {
+			const leftResetAt = left.secondaryResetAt ?? Number.POSITIVE_INFINITY;
+			const rightResetAt = right.secondaryResetAt ?? Number.POSITIVE_INFINITY;
+			if (leftResetAt !== rightResetAt) return leftResetAt - rightResetAt;
 		}
 		if (left.hasPriorityBoost !== right.hasPriorityBoost) return left.hasPriorityBoost ? -1 : 1;
 		let metric = compareUsageRankingMetric(left.secondaryDrainRate, right.secondaryDrainRate);
@@ -3543,18 +3601,29 @@ export class AuthStorage {
 	#compareRankedOAuthCandidates(
 		left: RankedOAuthCandidate,
 		right: RankedOAuthCandidate,
+		provider: string,
 		planRequirement: OpenAICodexPlanRequirement,
 	): number {
-		const priority = this.#compareRankedOAuthCandidatePriority(left, right, planRequirement);
+		const priority = this.#compareRankedOAuthCandidatePriority(left, right, provider, planRequirement);
 		return priority !== 0 ? priority : left.orderPos - right.orderPos;
 	}
 
 	#orderRankedOAuthCandidates(
 		candidates: RankedOAuthCandidate[],
 		sessionId: string | undefined,
+		provider: string,
 		planRequirement: OpenAICodexPlanRequirement,
 	): OAuthCandidate[] {
-		candidates.sort((left, right) => this.#compareRankedOAuthCandidates(left, right, planRequirement));
+		candidates.sort((left, right) => this.#compareRankedOAuthCandidates(left, right, provider, planRequirement));
+		// Codex selection is deterministic to preserve session->account stickiness and server-side
+		// prompt-cache continuity. Skip the weighted-random load-spreading used for other providers.
+		if (provider === CODEX_PROVIDER) {
+			return candidates.map(candidate => ({
+				selection: candidate.selection,
+				usage: candidate.usage,
+				usageChecked: candidate.usageChecked,
+			}));
+		}
 		if (!sessionId) {
 			return candidates.map(candidate => ({
 				selection: candidate.selection,
@@ -3579,7 +3648,7 @@ export class AuthStorage {
 		for (const candidate of unblocked) {
 			if (
 				candidate !== previous &&
-				this.#compareRankedOAuthCandidatePriority(previous, candidate, planRequirement) !== 0
+				this.#compareRankedOAuthCandidatePriority(previous, candidate, provider, planRequirement) !== 0
 			) {
 				bucketIndex += 1;
 			}
@@ -3623,11 +3692,11 @@ export class AuthStorage {
 	async #rankOAuthSelections(args: {
 		providerKey: string;
 		provider: string;
+		sessionId?: string;
 		order: number[];
 		planRequirement: OpenAICodexPlanRequirement;
 		credentials: OAuthSelection[];
 		options?: AuthApiKeyOptions;
-		sessionId?: string;
 		strategy: CredentialRankingStrategy;
 		rankingContext: CredentialRankingContext;
 		blockScope?: string;
@@ -3689,7 +3758,14 @@ export class AuthStorage {
 				result ??
 				args.order.map(idx => {
 					const selection = args.credentials[idx];
-					return selection ? { selection, usage: null, usageChecked: false, blockedUntil: undefined } : null;
+					return selection
+						? {
+								selection,
+								usage: null,
+								usageChecked: false,
+								blockedUntil: undefined,
+							}
+						: null;
 				})
 			);
 		});
@@ -3713,10 +3789,30 @@ export class AuthStorage {
 				);
 				blocked = true;
 			}
+			if (!blocked && args.provider === CODEX_PROVIDER && !usage) {
+				this.#logCodexCredentialOmittedFromRanking({
+					sessionId: args.sessionId,
+					selection,
+					reason: "missing_usage_report",
+					modelId: args.options?.modelId,
+				});
+				continue;
+			}
 			const windows = usage ? strategy.findWindowLimits(usage, args.rankingContext) : undefined;
 			const primary = windows?.primary;
 			const secondary = windows?.secondary;
 			const secondaryTarget = secondary ?? primary;
+			const secondaryUsed = this.#normalizeUsageFraction(secondaryTarget);
+			const secondaryResetAt =
+				!blocked && args.provider === CODEX_PROVIDER && usage && secondary
+					? this.#resolveWindowResetAt(secondary.window)
+					: undefined;
+			const hasUntouchedSecondaryWindow =
+				!blocked &&
+				args.provider === CODEX_PROVIDER &&
+				usage !== null &&
+				secondary !== undefined &&
+				secondaryUsed === 0;
 			ranked.push({
 				selection,
 				usage,
@@ -3725,7 +3821,9 @@ export class AuthStorage {
 				blockedUntil,
 				hasPriorityBoost: strategy.hasPriorityBoost?.(primary) ?? false,
 				planPriority: getOpenAICodexPlanPriority(usage, args.planRequirement),
-				secondaryUsed: this.#normalizeUsageFraction(secondaryTarget),
+				hasUntouchedSecondaryWindow,
+				secondaryResetAt,
+				secondaryUsed,
 				secondaryDrainRate: this.#computeWindowDrainRate(
 					secondaryTarget,
 					nowMs,
@@ -3736,7 +3834,7 @@ export class AuthStorage {
 				orderPos,
 			});
 		}
-		return this.#orderRankedOAuthCandidates(ranked, args.sessionId, args.planRequirement);
+		return this.#orderRankedOAuthCandidates(ranked, args.sessionId, args.provider, args.planRequirement);
 	}
 
 	/**
@@ -3812,7 +3910,11 @@ export class AuthStorage {
 			: order
 					.map(idx => credentials[idx])
 					.filter((selection): selection is { credential: OAuthCredential; index: number } => Boolean(selection))
-					.map(selection => ({ selection, usage: null, usageChecked: false }));
+					.map(selection => ({
+						selection,
+						usage: null,
+						usageChecked: false,
+					}));
 
 		if (sessionPreferredIndex !== undefined && !hasPlanRequirement) {
 			const sessionPreferredCandidate = candidates.findIndex(
@@ -5042,7 +5144,11 @@ export class AuthStorage {
 				});
 			}
 		}
-		return { generation: this.#generation, generatedAt: Date.now(), credentials: entries };
+		return {
+			generation: this.#generation,
+			generatedAt: Date.now(),
+			credentials: entries,
+		};
 	}
 
 	/**
@@ -5384,7 +5490,10 @@ function deserializeCredential(row: AuthRow): AuthCredential | null {
 		}
 	}
 	if (row.credential_type === "oauth") {
-		return { type: "oauth", ...(parsed as Record<string, unknown>) } as AuthCredential;
+		return {
+			type: "oauth",
+			...(parsed as Record<string, unknown>),
+		} as AuthCredential;
 	}
 	return null;
 }
@@ -5395,7 +5504,12 @@ function normalizeDisabledCause(disabledCause: string): string {
 }
 
 function toStoredAuthCredential(row: AuthRow, credential: AuthCredential): StoredAuthCredential {
-	return { id: row.id, provider: row.provider, credential, disabledCause: row.disabled_cause };
+	return {
+		id: row.id,
+		provider: row.provider,
+		credential,
+		disabledCause: row.disabled_cause,
+	};
 }
 
 function resolveProviderCredentialIdentityKey(provider: string, identifiers: string[]): string | null {
@@ -6061,7 +6175,12 @@ export class SqliteAuthCredentialStore implements AuthCredentialStore {
 				if (match) {
 					matchedExistingIds.add(match.id);
 					this.#updateStmt.run(serialized.credentialType, serialized.data, serialized.identityKey, match.id);
-					result.push({ id: match.id, provider: providerName, credential, disabledCause: null });
+					result.push({
+						id: match.id,
+						provider: providerName,
+						credential,
+						disabledCause: null,
+					});
 				} else {
 					const row = this.#insertStmt.get(
 						providerName,
@@ -6070,7 +6189,12 @@ export class SqliteAuthCredentialStore implements AuthCredentialStore {
 						serialized.identityKey,
 					) as { id?: number } | undefined;
 					if (row?.id) {
-						result.push({ id: row.id, provider: providerName, credential, disabledCause: null });
+						result.push({
+							id: row.id,
+							provider: providerName,
+							credential,
+							disabledCause: null,
+						});
 					}
 				}
 			}
