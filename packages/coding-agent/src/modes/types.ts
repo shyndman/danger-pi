@@ -40,6 +40,7 @@ export type SubmittedUserInput = {
 	images?: ImageContent[];
 	customType?: string;
 	display?: boolean;
+	continueFromContext?: boolean;
 	cancelled: boolean;
 	started: boolean;
 };

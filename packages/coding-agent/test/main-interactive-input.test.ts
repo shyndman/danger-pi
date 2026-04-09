@@ -23,6 +23,7 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => {}),
 			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "", started: true });
 
@@ -30,6 +31,30 @@ describe("submitInteractiveInput", () => {
 
 		expect(mode.markPendingSubmissionStarted).not.toHaveBeenCalled();
 		expect(session.prompt).toHaveBeenCalledWith("", { images: undefined });
+		expect(session.continueFromContext).not.toHaveBeenCalled();
+		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
+		expect(mode.showError).not.toHaveBeenCalled();
+	});
+
+	it("continues from context for already-started multi-block follow-ups", async () => {
+		const mode = {
+			markPendingSubmissionStarted: vi.fn(() => false),
+			finishPendingSubmission: vi.fn(),
+			showError: vi.fn(),
+			checkShutdownRequested: vi.fn(async () => {}),
+		};
+		const session = {
+			prompt: vi.fn(async () => {}),
+			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
+		};
+		const input = createInput({ text: "", started: true, continueFromContext: true });
+
+		await submitInteractiveInput(mode, session, input);
+
+		expect(mode.markPendingSubmissionStarted).not.toHaveBeenCalled();
+		expect(session.prompt).not.toHaveBeenCalled();
+		expect(session.continueFromContext).toHaveBeenCalledTimes(1);
 		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 		expect(mode.showError).not.toHaveBeenCalled();
 	});
@@ -44,6 +69,7 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => {}),
 			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput();
 
@@ -51,6 +77,7 @@ describe("submitInteractiveInput", () => {
 
 		expect(mode.markPendingSubmissionStarted).toHaveBeenCalledWith(input);
 		expect(session.prompt).not.toHaveBeenCalled();
+		expect(session.continueFromContext).not.toHaveBeenCalled();
 		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 		expect(mode.showError).not.toHaveBeenCalled();
 	});
@@ -65,6 +92,7 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => {}),
 			promptCustomMessage: vi.fn(async () => {}),
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "continue goal", customType: "goal-continuation" });
 

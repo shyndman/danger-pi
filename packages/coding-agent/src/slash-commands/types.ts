@@ -83,6 +83,8 @@ export interface SlashCommandSpec extends BuiltinSlashCommand {
 	aliases?: string[];
 	/** When false, the dispatcher refuses to handle invocations that include arguments. */
 	allowArgs?: boolean;
+	/** Marks commands safe for fork-local multi-block batch execution. */
+	allowBatch?: boolean;
 	/**
 	 * ACP-specific override for `description`. Used by `ACP_BUILTIN_SLASH_COMMANDS`
 	 * when building `available_commands_update` payloads so the client receives

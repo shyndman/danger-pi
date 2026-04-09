@@ -135,7 +135,7 @@ export async function submitInteractiveInput(
 		InteractiveMode,
 		"markPendingSubmissionStarted" | "finishPendingSubmission" | "showError" | "checkShutdownRequested"
 	>,
-	session: Pick<AgentSession, "prompt" | "promptCustomMessage">,
+	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "continueFromContext">,
 	input: SubmittedUserInput,
 ): Promise<void> {
 	if (input.cancelled) {
@@ -154,6 +154,8 @@ export async function submitInteractiveInput(
 				display: input.display ?? false,
 				attribution: "agent",
 			});
+		} else if (input.continueFromContext) {
+			await session.continueFromContext();
 		} else {
 			await session.prompt(input.text, { images: input.images });
 		}
