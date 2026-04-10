@@ -47,8 +47,10 @@ interface ImageApiKey {
 }
 
 const responseModalitySchema = z.enum(["IMAGE", "TEXT"] as const);
-const aspectRatioSchema = z.enum(["1:1", "3:4", "4:3", "9:16", "16:9"] as const).describe("aspect ratio");
-const imageSizeSchema = z.enum(["1024x1024", "1536x1024", "1024x1536"] as const).describe("image size");
+const aspectRatioSchema = z
+	.enum(["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"] as const)
+	.describe("Aspect ratio (1:1, 1:4, 1:8, 2:3, 3:2, 3:4, 4:1, 4:3, 4:5, 5:4, 8:1, 9:16, 16:9, 21:9).");
+const imageSizeSchema = z.enum(["512", "1K", "2K", "4K"] as const).describe("Image size (512, 1K, 2K, 4K).");
 
 const inputImageSchema = z
 	.object({
@@ -260,7 +262,10 @@ interface AntigravityRequest {
 	project: string;
 	model: string;
 	request: {
-		contents: Array<{ role: "user"; parts: Array<{ text?: string; inlineData?: InlineImageData }> }>;
+		contents: Array<{
+			role: "user";
+			parts: Array<{ text?: string; inlineData?: InlineImageData }>;
+		}>;
 		systemInstruction?: { parts: Array<{ text: string }> };
 		generationConfig?: {
 			responseModalities?: GeminiResponseModality[];
@@ -624,7 +629,11 @@ function buildOpenAIHostedImageRequest(
 ): OpenAIHostedImageRequest {
 	const content: OpenAIInputContent[] = [{ type: "input_text", text: promptText }];
 	for (const image of inputImages) {
-		content.push({ type: "input_image", detail: "auto", image_url: toDataUrl(image) });
+		content.push({
+			type: "input_image",
+			detail: "auto",
+			image_url: toDataUrl(image),
+		});
 	}
 
 	const size = resolveOpenAIImageSize(params.aspect_ratio, params.image_size);
@@ -846,9 +855,18 @@ function buildAntigravityRequest(
 			safetySettings: [
 				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
 				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_ONLY_HIGH" },
+				{
+					category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
+				{
+					category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
+				{
+					category: "HARM_CATEGORY_CIVIC_INTEGRITY",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
 			],
 		},
 		requestType: "agent",
@@ -969,7 +987,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				return {
 					content: [
-						{ type: "text", text: buildResponseSummary(provider, model, imagePaths, parsed.responseText) },
+						{
+							type: "text",
+							text: buildResponseSummary(provider, model, imagePaths, parsed.responseText),
+						},
 					],
 					details: {
 						provider,
@@ -1015,7 +1036,9 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 					const errorText = await response.text();
 					let message = errorText;
 					try {
-						const parsed = JSON.parse(errorText) as { error?: { message?: string } };
+						const parsed = JSON.parse(errorText) as {
+							error?: { message?: string };
+						};
 						message = parsed.error?.message ?? message;
 					} catch {
 						// Keep raw text.
@@ -1045,7 +1068,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				const imagePaths = await saveImagesToTemp(parsed.images);
 
 				return {
-					content: [{ type: "text", text: buildResponseSummary(provider, model, imagePaths, responseText) }],
+					content: [
+						{
+							type: "text",
+							text: buildResponseSummary(provider, model, imagePaths, responseText),
+						},
+					],
 					details: {
 						provider,
 						model,
@@ -1062,7 +1090,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				const prompt = assemblePrompt(params);
 				const contentParts: OpenRouterContentPart[] = [{ type: "text", text: prompt }];
 				for (const image of resolvedImages) {
-					contentParts.push({ type: "image_url", image_url: { url: toDataUrl(image) } });
+					contentParts.push({
+						type: "image_url",
+						image_url: { url: toDataUrl(image) },
+					});
 				}
 
 				const requestBody = {
@@ -1087,7 +1118,9 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				if (!response.ok) {
 					let message = rawText;
 					try {
-						const parsed = JSON.parse(rawText) as { error?: { message?: string } };
+						const parsed = JSON.parse(rawText) as {
+							error?: { message?: string };
+						};
 						message = parsed.error?.message ?? message;
 					} catch {
 						// Keep raw text.
@@ -1123,7 +1156,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				return {
 					content: [
-						{ type: "text", text: buildResponseSummary(provider, resolvedModel, imagePaths, responseText) },
+						{
+							type: "text",
+							text: buildResponseSummary(provider, resolvedModel, imagePaths, responseText),
+						},
 					],
 					details: {
 						provider,
@@ -1136,7 +1172,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				};
 			}
 
-			const parts = [] as Array<{ text?: string; inlineData?: InlineImageData }>;
+			const parts = [] as Array<{
+				text?: string;
+				inlineData?: InlineImageData;
+			}>;
 			for (const image of resolvedImages) {
 				parts.push({ inlineData: image });
 			}
@@ -1178,7 +1217,9 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 			if (!response.ok) {
 				let message = rawText;
 				try {
-					const parsed = JSON.parse(rawText) as { error?: { message?: string } };
+					const parsed = JSON.parse(rawText) as {
+						error?: { message?: string };
+					};
 					message = parsed.error?.message ?? message;
 				} catch {
 					// Keep raw text.
@@ -1196,7 +1237,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 					? `Blocked: ${data.promptFeedback.blockReason}`
 					: "No image data returned.";
 				return {
-					content: [{ type: "text", text: `${blocked}${responseText ? `\n\n${responseText}` : ""}` }],
+					content: [
+						{
+							type: "text",
+							text: `${blocked}${responseText ? `\n\n${responseText}` : ""}`,
+						},
+					],
 					details: {
 						provider,
 						model,
@@ -1213,7 +1259,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 			const imagePaths = await saveImagesToTemp(inlineImages);
 
 			return {
-				content: [{ type: "text", text: buildResponseSummary(provider, model, imagePaths, responseText) }],
+				content: [
+					{
+						type: "text",
+						text: buildResponseSummary(provider, model, imagePaths, responseText),
+					},
+				],
 				details: {
 					provider,
 					model,
