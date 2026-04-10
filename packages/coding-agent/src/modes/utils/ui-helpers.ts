@@ -8,6 +8,7 @@ import { settings } from "../../config/settings";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
 import { createAdvisorMessageCard } from "../../modes/components/advisor-message";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
+import { getElapsedSincePreviousAssistant } from "../../modes/components/assistant-usage-format";
 import { createBackgroundTanDispatchBlock } from "../../modes/components/background-tan-message";
 import { BashExecutionComponent } from "../../modes/components/bash-execution";
 import { detectCacheInvalidation } from "../../modes/components/cache-invalidation-marker";
@@ -126,7 +127,10 @@ export class UiHelpers {
 
 	addMessageToChat(
 		message: AgentMessage,
-		options?: { populateHistory?: boolean; imageLinks?: readonly (string | undefined)[] },
+		options?: {
+			populateHistory?: boolean;
+			imageLinks?: readonly (string | undefined)[];
+		},
 	): Component[] {
 		switch (message.role) {
 			case "bashExecution": {
@@ -315,14 +319,18 @@ export class UiHelpers {
 		// read run so the row sits under it. Mirrors the live path, where the read
 		// group is created during streaming and the row is appended below it.
 		let pendingUsage: Usage | undefined;
+		let pendingElapsed: number | undefined;
 		let pendingUsageDuration: number | undefined;
 		let pendingUsageTtft: number | undefined;
 		const flushPendingUsage = () => {
 			if (!pendingUsage) return;
 			readGroup?.seal();
 			readGroup = null;
-			this.ctx.chatContainer.addChild(createUsageRowBlock(pendingUsage, pendingUsageDuration, pendingUsageTtft));
+			this.ctx.chatContainer.addChild(
+				createUsageRowBlock(pendingUsage, pendingElapsed, pendingUsageDuration, pendingUsageTtft),
+			);
 			pendingUsage = undefined;
+			pendingElapsed = undefined;
 			pendingUsageDuration = undefined;
 			pendingUsageTtft = undefined;
 		};
@@ -511,6 +519,9 @@ export class UiHelpers {
 					this.ctx.settings.get("display.showTokenUsage") && assistantUsageIsBilled(message.usage)
 						? message.usage
 						: undefined;
+				pendingElapsed = pendingUsage
+					? getElapsedSincePreviousAssistant(sessionContext.messages, message.timestamp)
+					: undefined;
 				pendingUsageDuration = message.duration;
 				pendingUsageTtft = message.ttft;
 			} else if (message.role === "toolResult") {

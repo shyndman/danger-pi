@@ -6,8 +6,9 @@
  * row above the read group, diverging from the live path. The fix defers the row and
  * flushes it after the turn's tools are placed.
  */
-import { beforeAll, describe, expect, it, vi } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "bun:test";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { ReadToolGroupComponent } from "@oh-my-pi/pi-coding-agent/modes/components/read-tool-group";
 import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
@@ -77,6 +78,10 @@ function makeHarness(showTokenUsage: boolean): { ctx: InteractiveModeContext; he
 describe("UiHelpers.renderSessionContext token-usage row placement", () => {
 	beforeAll(async () => {
 		await initTheme();
+		await Settings.init({ inMemory: true, cwd: process.cwd() });
+	});
+	afterAll(() => {
+		resetSettingsForTest();
 	});
 
 	it("places the usage row below the read group for a read turn", () => {

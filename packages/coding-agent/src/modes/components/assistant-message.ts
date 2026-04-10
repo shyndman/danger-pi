@@ -552,7 +552,10 @@ export class AssistantMessageComponent extends Container {
 
 	#renderToolImages(): void {
 		const imageEntries = Array.from(this.#toolImagesByCallId.entries()).flatMap(([toolCallId, images]) =>
-			images.map((image, index) => ({ image, key: `${toolCallId}:${index}` })),
+			images.map((image, index) => ({
+				image,
+				key: `${toolCallId}:${index}`,
+			})),
 		);
 		if (imageEntries.length === 0) return;
 

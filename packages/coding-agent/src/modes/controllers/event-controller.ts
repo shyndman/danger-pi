@@ -8,6 +8,7 @@ import { extractTextContent } from "../../commit/utils";
 import { settings } from "../../config/settings";
 import { getFileSnapshotStore } from "../../edit/file-snapshot-store";
 import { AssistantMessageComponent } from "../../modes/components/assistant-message";
+import { getElapsedSincePreviousAssistant } from "../../modes/components/assistant-usage-format";
 import { detectCacheInvalidation } from "../../modes/components/cache-invalidation-marker";
 import {
 	ReadToolGroupComponent,
@@ -239,7 +240,9 @@ export class EventController {
 
 	#inlineReadToolImages(
 		toolCallId: string,
-		result: { content: Array<{ type: string; data?: string; mimeType?: string }> },
+		result: {
+			content: Array<{ type: string; data?: string; mimeType?: string }>;
+		},
 	): boolean {
 		if (!settings.get("terminal.showImages")) return false;
 		const assistantComponent = this.#readToolCallAssistantComponents.get(toolCallId);
@@ -249,7 +252,11 @@ export class EventController {
 				(content): content is ImageContent =>
 					content.type === "image" && typeof content.data === "string" && typeof content.mimeType === "string",
 			)
-			.map(content => ({ type: "image", data: content.data, mimeType: content.mimeType }));
+			.map(content => ({
+				type: "image",
+				data: content.data,
+				mimeType: content.mimeType,
+			}));
 		if (images.length === 0) return false;
 		assistantComponent.setToolResultImages(toolCallId, images);
 		return true;
@@ -810,11 +817,11 @@ export class EventController {
 				errorMessage = resolveAbortLabel(this.ctx.streamingMessage, this.ctx.viewSession.retryAttempt);
 				this.ctx.streamingMessage.errorMessage = errorMessage;
 			}
-			if (silentlyAborted || ttsrSilenced) {
-				// Silence the streaming render by downgrading stopReason to "stop" for
-				// display only — does NOT mutate the persisted message's stopReason
-				// (the marker on errorMessage drives replay-side suppression).
-				const msgWithoutAbort = { ...this.ctx.streamingMessage, stopReason: "stop" as const };
+			if ((silentlyAborted || ttsrSilenced) && this.ctx.streamingMessage.stopReason === "aborted") {
+				const msgWithoutAbort = {
+					...this.ctx.streamingMessage,
+					stopReason: "stop" as const,
+				};
 				this.ctx.streamingComponent.updateContent(msgWithoutAbort);
 			} else {
 				this.ctx.streamingComponent.updateContent(this.ctx.streamingMessage);
@@ -851,8 +858,12 @@ export class EventController {
 			this.#lastAssistantComponent = this.ctx.streamingComponent;
 			this.#lastAssistantComponent.markTranscriptBlockFinalized();
 			if (settings.get("display.showTokenUsage") && assistantUsageIsBilled(event.message.usage)) {
+				const elapsedMs = getElapsedSincePreviousAssistant(
+					this.ctx.session.messages ?? [],
+					event.message.timestamp,
+				);
 				this.ctx.chatContainer.addChild(
-					createUsageRowBlock(event.message.usage, event.message.duration, event.message.ttft),
+					createUsageRowBlock(event.message.usage, elapsedMs, event.message.duration, event.message.ttft),
 				);
 			}
 			this.ctx.streamingComponent = undefined;

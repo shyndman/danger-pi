@@ -165,7 +165,6 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
-			continueFromContext: vi.fn(async () => {}),
 			isStreaming: false,
 			continueFromContext: vi.fn(async () => {}),
 		};
@@ -187,7 +186,6 @@ describe("submitInteractiveInput", () => {
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
-			continueFromContext: vi.fn(async () => {}),
 			isStreaming: true,
 			continueFromContext: vi.fn(async () => {}),
 		};

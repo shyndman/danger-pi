@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -48,6 +48,7 @@ afterEach(async () => {
 	}
 	delete Bun.env.GEMINI_API_KEY;
 	setPreferredImageProvider("auto");
+	vi.restoreAllMocks();
 });
 
 describe("imageGenTool", () => {

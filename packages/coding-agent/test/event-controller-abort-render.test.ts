@@ -54,7 +54,11 @@ function createFixture(opts: {
 	const updateContent = vi.fn();
 	const setComplete = vi.fn();
 	const markTranscriptBlockFinalized = vi.fn();
-	const streamingComponent = { updateContent, setComplete, markTranscriptBlockFinalized };
+	const streamingComponent = {
+		updateContent,
+		setComplete,
+		markTranscriptBlockFinalized,
+	};
 	const requestRender = vi.fn();
 
 	const ctxBase = {
