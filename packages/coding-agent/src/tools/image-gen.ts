@@ -61,8 +61,10 @@ const IMAGE_PROVIDER_PREFERENCES = new Set<string>(["auto", "antigravity", "gemi
 
 const responseModalitySchema = type('"IMAGE" | "TEXT"');
 
-const aspectRatioSchema = type.enumerated(...XAI_IMAGE_ASPECT_RATIOS).describe("aspect ratio");
-const imageSizeSchema = type('"1024x1024" | "1536x1024" | "1024x1536"').describe("image size");
+const aspectRatioSchema = type
+	.enumerated("1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9")
+	.describe("Aspect ratio (1:1, 1:4, 1:8, 2:3, 3:2, 3:4, 4:1, 4:3, 4:5, 5:4, 8:1, 9:16, 16:9, 21:9).");
+const imageSizeSchema = type('"512" | "1K" | "2K" | "4K"').describe("Image size (512, 1K, 2K, 4K).");
 
 const inputImageSchema = type({
 	"path?": type("string").describe("input image path"),
@@ -268,7 +270,10 @@ interface AntigravityRequest {
 	project: string;
 	model: string;
 	request: {
-		contents: Array<{ role: "user"; parts: Array<{ text?: string; inlineData?: InlineImageData }> }>;
+		contents: Array<{
+			role: "user";
+			parts: Array<{ text?: string; inlineData?: InlineImageData }>;
+		}>;
 		systemInstruction?: { parts: Array<{ text: string }> };
 		generationConfig?: {
 			responseModalities?: GeminiResponseModality[];
@@ -309,8 +314,14 @@ interface XAIImageRequestBase {
 // the array length, which TypeScript cannot encode without lossy tuple unions.
 type XAIImageRequestBody =
 	| (XAIImageRequestBase & { readonly image?: never; readonly images?: never })
-	| (XAIImageRequestBase & { readonly image: XAIImageReference; readonly images?: never })
-	| (XAIImageRequestBase & { readonly images: readonly XAIImageReference[]; readonly image?: never });
+	| (XAIImageRequestBase & {
+			readonly image: XAIImageReference;
+			readonly images?: never;
+	  })
+	| (XAIImageRequestBase & {
+			readonly images: readonly XAIImageReference[];
+			readonly image?: never;
+	  });
 
 interface AntigravityResponseChunk {
 	response?: {
@@ -443,15 +454,6 @@ export function isImageProviderPreference(value: unknown): value is ImageProvide
 export function setPreferredImageProvider(provider: ImageProviderPreference): void {
 	preferredImageProvider = provider;
 }
-function assertImageAspectRatioSupported(provider: ImageProvider, aspectRatio: ImageGenParams["aspect_ratio"]): void {
-	if (!aspectRatio || provider === "xai" || COMMON_IMAGE_ASPECT_RATIO_SET.has(aspectRatio)) {
-		return;
-	}
-	throw new Error(
-		`Aspect ratio ${aspectRatio} is only supported by xAI image generation. Set providers.image to xai or use one of ${COMMON_IMAGE_ASPECT_RATIOS.join(", ")}.`,
-	);
-}
-
 interface ParsedAntigravityCredentials {
 	accessToken: string;
 	projectId: string;
@@ -729,7 +731,11 @@ function buildOpenAIHostedImageRequest(
 ): OpenAIHostedImageRequest {
 	const content: OpenAIInputContent[] = [{ type: "input_text", text: promptText }];
 	for (const image of inputImages) {
-		content.push({ type: "input_image", detail: "auto", image_url: toDataUrl(image) });
+		content.push({
+			type: "input_image",
+			detail: "auto",
+			image_url: toDataUrl(image),
+		});
 	}
 
 	const size = resolveOpenAIImageSize(params.aspect_ratio, params.image_size);
@@ -954,9 +960,18 @@ function buildAntigravityRequest(
 			safetySettings: [
 				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
 				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
-				{ category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_ONLY_HIGH" },
+				{
+					category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
+				{
+					category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
+				{
+					category: "HARM_CATEGORY_CIVIC_INTEGRITY",
+					threshold: "BLOCK_ONLY_HIGH",
+				},
 			],
 		},
 		requestType: "agent",
@@ -1059,7 +1074,6 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 								? DEFAULT_XAI_IMAGE_MODEL
 								: DEFAULT_MODEL;
 			const resolvedModel = provider === "openrouter" ? resolveOpenRouterModel(model) : model;
-			assertImageAspectRatioSupported(provider, params.aspect_ratio);
 			const cwd = ctx.sessionManager.getCwd();
 
 			const resolvedImages: InlineImageData[] = [];
@@ -1116,7 +1130,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				return {
 					content: [
-						{ type: "text", text: buildResponseSummary(provider, model, imagePaths, parsed.responseText) },
+						{
+							type: "text",
+							text: buildResponseSummary(provider, model, imagePaths, parsed.responseText),
+						},
 					],
 					details: {
 						provider,
@@ -1255,7 +1272,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				const imagePaths = await saveImagesToTemp(parsed.images);
 
 				return {
-					content: [{ type: "text", text: buildResponseSummary(provider, model, imagePaths, responseText) }],
+					content: [
+						{
+							type: "text",
+							text: buildResponseSummary(provider, model, imagePaths, responseText),
+						},
+					],
 					details: {
 						provider,
 						model,
@@ -1370,7 +1392,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				return {
 					content: [
-						{ type: "text", text: buildResponseSummary(provider, resolvedModel, xaiImagePaths, undefined) },
+						{
+							type: "text",
+							text: buildResponseSummary(provider, resolvedModel, xaiImagePaths, undefined),
+						},
 					],
 					details: {
 						provider,
@@ -1386,7 +1411,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				const prompt = assemblePrompt(params);
 				const contentParts: OpenRouterContentPart[] = [{ type: "text", text: prompt }];
 				for (const image of resolvedImages) {
-					contentParts.push({ type: "image_url", image_url: { url: toDataUrl(image) } });
+					contentParts.push({
+						type: "image_url",
+						image_url: { url: toDataUrl(image) },
+					});
 				}
 
 				const requestBody = {
@@ -1457,7 +1485,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 
 				return {
 					content: [
-						{ type: "text", text: buildResponseSummary(provider, resolvedModel, imagePaths, responseText) },
+						{
+							type: "text",
+							text: buildResponseSummary(provider, resolvedModel, imagePaths, responseText),
+						},
 					],
 					details: {
 						provider,
@@ -1470,7 +1501,10 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 				};
 			}
 
-			const parts = [] as Array<{ text?: string; inlineData?: InlineImageData }>;
+			const parts = [] as Array<{
+				text?: string;
+				inlineData?: InlineImageData;
+			}>;
 			for (const image of resolvedImages) {
 				parts.push({ inlineData: image });
 			}
@@ -1538,7 +1572,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 					? `Blocked: ${data.promptFeedback.blockReason}`
 					: "No image data returned.";
 				return {
-					content: [{ type: "text", text: `${blocked}${responseText ? `\n\n${responseText}` : ""}` }],
+					content: [
+						{
+							type: "text",
+							text: `${blocked}${responseText ? `\n\n${responseText}` : ""}`,
+						},
+					],
 					details: {
 						provider,
 						model,
@@ -1555,7 +1594,12 @@ export const imageGenTool: CustomTool<typeof imageGenSchema, ImageGenToolDetails
 			const imagePaths = await saveImagesToTemp(inlineImages);
 
 			return {
-				content: [{ type: "text", text: buildResponseSummary(provider, model, imagePaths, responseText) }],
+				content: [
+					{
+						type: "text",
+						text: buildResponseSummary(provider, model, imagePaths, responseText),
+					},
+				],
 				details: {
 					provider,
 					model,

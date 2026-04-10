@@ -167,6 +167,7 @@ describe("submitInteractiveInput", () => {
 			promptCustomMessage: vi.fn(async () => {}),
 			continueFromContext: vi.fn(async () => {}),
 			isStreaming: false,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "loop prompt" });
 
@@ -188,6 +189,7 @@ describe("submitInteractiveInput", () => {
 			promptCustomMessage: vi.fn(async () => {}),
 			continueFromContext: vi.fn(async () => {}),
 			isStreaming: true,
+			continueFromContext: vi.fn(async () => {}),
 		};
 		const input = createInput({ text: "interrupt now", streamingBehavior: "steer" });
 
