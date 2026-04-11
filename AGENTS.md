@@ -1,3 +1,7 @@
+# Danger Pi is a fork of Oh-My-Pi
+
+You **MUST** read @FORK.md.
+
 # Development Rules
 
 ## Default Context
@@ -46,20 +50,20 @@ Use Bun APIs where they provide a cleaner alternative; fall back to `node:*` onl
 
 ### Quick reference
 
-| Operation       | Use                                       | Not                             |
-| --------------- | ----------------------------------------- | ------------------------------- |
-| File read/write | `Bun.file()`, `Bun.write()`               | `readFileSync`, `writeFileSync` |
-| Spawn process   | `` $`cmd` ``, `Bun.spawn()`               | `child_process`                 |
-| Sleep           | `Bun.sleep(ms)`                           | `setTimeout` promise            |
-| Binary lookup   | `$which("git")` from `@oh-my-pi/pi-utils` | `spawnSync(["which", "git"])`   |
-| HTTP server     | `Bun.serve()`                             | `http.createServer()`           |
-| SQLite          | `bun:sqlite`                              | `better-sqlite3`                |
-| Hashing         | `Bun.hash()`, `Bun.password.*`, WebCrypto | `node:crypto`                   |
-| Path resolution | `import.meta.dir`, `import.meta.path`     | `fileURLToPath` dance           |
-| JSON5           | `Bun.JSON5.parse()` / `.stringify()`      | `json5` package                 |
+| Operation       | Use                                       | Not                                |
+| --------------- | ----------------------------------------- | ---------------------------------- |
+| File read/write | `Bun.file()`, `Bun.write()`               | `readFileSync`, `writeFileSync`    |
+| Spawn process   | `` $`cmd` ``, `Bun.spawn()`               | `child_process`                    |
+| Sleep           | `Bun.sleep(ms)`                           | `setTimeout` promise               |
+| Binary lookup   | `$which("git")` from `@oh-my-pi/pi-utils` | `spawnSync(["which", "git"])`      |
+| HTTP server     | `Bun.serve()`                             | `http.createServer()`              |
+| SQLite          | `bun:sqlite`                              | `better-sqlite3`                   |
+| Hashing         | `Bun.hash()`, `Bun.password.*`, WebCrypto | `node:crypto`                      |
+| Path resolution | `import.meta.dir`, `import.meta.path`     | `fileURLToPath` dance              |
+| JSON5           | `Bun.JSON5.parse()` / `.stringify()`      | `json5` package                    |
 | JSONL           | `Bun.JSONL.parse()` / `.parseChunk()`     | `text.split("\n").map(JSON.parse)` |
-| String width    | `Bun.stringWidth()`                       | `get-east-asian-width`, custom  |
-| Text wrapping   | `Bun.wrapAnsi()`                          | custom ANSI-aware wrappers      |
+| String width    | `Bun.stringWidth()`                       | `get-east-asian-width`, custom     |
+| Text wrapping   | `Bun.wrapAnsi()`                          | custom ANSI-aware wrappers         |
 
 ### Process execution
 
@@ -70,7 +74,7 @@ import { $ } from "bun";
 
 const result = await $`git status`.cwd(dir).quiet().nothrow();
 if (result.exitCode === 0) {
-	const text = result.text();
+  const text = result.text();
 }
 
 $`do-stuff ${tmpFile}`.quiet().nothrow(); // fire and forget
@@ -81,6 +85,7 @@ Methods: `.quiet()`, `.nothrow()`, `.text()`, `.cwd(path)`.
 Use `Bun.spawn`/`Bun.spawnSync` only for: long-running processes (LSP, kernels), streaming stdin/stdout/stderr (SSE, JSON-RPC), or process control (signals, kill, complex lifecycle).
 
 When using `pipe` mode, cast the stream:
+
 ```typescript
 const child = Bun.spawn(["cmd"], { stdout: "pipe", stderr: "pipe" });
 const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
@@ -102,6 +107,7 @@ import * as os from "node:os";
 ### File I/O
 
 Prefer Bun:
+
 ```typescript
 const text = await Bun.file(path).text();
 const data = await Bun.file(path).json();
@@ -111,16 +117,17 @@ await Bun.write(path, data); // auto-creates parent dirs
 Use `node:fs/promises` for directory ops (`fs.mkdir`, `fs.rm`, `fs.readdir`) — Bun has no native directory APIs. Avoid sync APIs in async flows; use sync only when forced by a synchronous interface.
 
 **Anti-patterns:**
+
 - `existsSync`/`readFileSync`/`writeFileSync` in async code → `Bun.file()` APIs.
 - `mkdir(dirname(path), …)` before `Bun.write(path, …)` → redundant; `Bun.write` handles it.
 - `if (await file.exists()) { await file.json() }` → two syscalls plus race. Use try-catch with `isEnoent`:
   ```typescript
   import { isEnoent } from "@oh-my-pi/pi-utils";
   try {
-  	return await Bun.file(path).json();
+    return await Bun.file(path).json();
   } catch (err) {
-  	if (isEnoent(err)) return null;
-  	throw err;
+    if (isEnoent(err)) return null;
+    throw err;
   }
   ```
 - Multiple `Bun.file(path)` handles for the same path (including across `checkX`/`loadX` helpers).
@@ -130,11 +137,15 @@ Use `node:fs/promises` for directory ops (`fs.mkdir`, `fs.rm`, `fs.readdir`) —
 ### Streams
 
 Prefer centralized helpers:
+
 ```typescript
 import { readStream, readLines } from "./utils/stream";
 const text = await readStream(child.stdout);
-for await (const line of readLines(stream)) { /* ... */ }
+for await (const line of readLines(stream)) {
+  /* ... */
+}
 ```
+
 Manual reader loops only when the protocol requires it (SSE, streaming JSON-RPC).
 
 ### Misc
@@ -149,6 +160,7 @@ Manual reader loops only when the protocol requires it (SSE, streaming JSON-RPC)
 **NEVER edit `packages/ai/src/models.json` directly.** It is generated from upstream sources (models.dev, provider catalog discovery, OpenCode docs) by `packages/ai/scripts/generate-models.ts` and the descriptors/resolvers in `packages/ai/src/provider-models/`. Hand-edits get overwritten on the next regen.
 
 To change an entry, fix the source:
+
 - **Resolution rules / per-id overrides** → relevant resolver in `packages/ai/src/provider-models/openai-compat.ts` (e.g. `createOpenCodeApiResolution`'s id-override map).
 - **Provider descriptors** (filtering, transforms, defaults, headers, compat overrides) → `packages/ai/src/provider-models/descriptors.ts` or the provider-specific descriptor.
 - **Generator-level fixups** (premium multipliers, codex pricing fallback, fallback models, post-processing) → `packages/ai/scripts/generate-models.ts`.
@@ -175,14 +187,16 @@ Logs go to `~/.omp/logs/omp.YYYY-MM-DD.log` with automatic rotation.
 All text displayed in tool renderers must be sanitized. Raw content (file contents, error messages, tool output) breaks terminal rendering: tabs → visual holes, long lines → overflow, paths → leak home directory.
 
 **Rules:**
+
 - **Tabs → spaces** via `replaceTabs()` (from `@oh-my-pi/pi-tui` or `../tools/render-utils`).
 - **Truncate** lines with `truncateToWidth()` / `ui.truncate()`. Use `TRUNCATE_LENGTHS` constants.
 - **Shorten paths** with `shortenPath()` (replaces home with `~`).
 - **Preview limits** from `PREVIEW_LIMITS`. No ad-hoc numbers.
 
 **Apply to every render path**, not just the happy one:
+
 - Success output (file previews, command output, search results).
-- **Error messages** — these often embed file content (e.g., patch failure messages include unmatched lines). If a message contains file content, it needs `replaceTabs()`.
+- **Error messages** — these often embed file content (e.g., "patch failure messages include unmatched lines). If a message contains file content, it needs `replaceTabs()`.
 - Diff content (added and removed).
 - Streaming previews.
 
@@ -191,6 +205,7 @@ All text displayed in tool renderers must be sanitized. Raw content (file conten
 Tool-call previews can have **multiple render paths**. If you add preview-only fields or depend on partially streamed args, update every path — not only the final renderer.
 
 For the bash tool specifically:
+
 - The pending preview may need raw `partialJson`, not just parsed `arguments`. Parsed args lag until a JSON object closes, which makes inline env assignments appear only at the end.
 - Preserve preview-only fields (e.g. `__partialJson`) through `event-controller.ts`, transcript rebuilds in `ui-helpers.ts`, and merged call/result rendering in `tool-execution.ts`. Missing one path causes inconsistent previews.
 - `ToolExecutionComponent.#buildRenderContext()` for bash must work even before a result exists — the renderer uses call args plus render context to show the command preview while streaming.
@@ -224,6 +239,7 @@ Test the contract the system exposes — not the easiest internal detail to asse
 Location: `packages/*/CHANGELOG.md` (per package).
 
 **Format** — sections under `## [Unreleased]`:
+
 - `### Breaking Changes` (first if present)
 - `### Added`
 - `### Changed`
@@ -231,10 +247,12 @@ Location: `packages/*/CHANGELOG.md` (per package).
 - `### Removed`
 
 **Rules:**
+
 - New entries always go under `## [Unreleased]`.
 - Never modify already-released sections (e.g., `## [0.12.2]`) — they are immutable.
 
 **Attribution:**
+
 - Internal (from issues): `Fixed foo bar ([#123](https://github.com/can1357/oh-my-pi/issues/123))`.
 - External contributions: `Added feature X ([#456](https://github.com/can1357/oh-my-pi/pull/456) by [@username](https://github.com/username))`.
 
