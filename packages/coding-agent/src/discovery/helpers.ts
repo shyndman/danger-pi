@@ -299,7 +299,14 @@ async function globIf(
 	recursive: boolean = true,
 ): Promise<Array<{ path: string }>> {
 	try {
-		const result = await glob({ pattern, path: dir, gitignore: true, hidden: false, fileType, recursive });
+		const result = await glob({
+			pattern,
+			path: dir,
+			gitignore: true,
+			hidden: false,
+			fileType,
+			recursive,
+		});
 		return result.matches;
 	} catch {
 		return [];
@@ -353,7 +360,9 @@ export async function scanSkillsFromDir(
 		try {
 			const content = await readFile(skillPath);
 			if (!content) return;
-			const { frontmatter, body } = parseFrontmatter(content, { source: skillPath });
+			const { frontmatter, body } = parseFrontmatter(content, {
+				source: skillPath,
+			});
 			if (frontmatter.enabled === false) {
 				return;
 			}
@@ -567,7 +576,10 @@ async function readExtensionModuleManifest(
 	const content = await readFile(packageJsonPath);
 	if (!content) return null;
 
-	const pkg = tryParseJson<{ omp?: ExtensionModuleManifest; pi?: ExtensionModuleManifest }>(content);
+	const pkg = tryParseJson<{
+		omp?: ExtensionModuleManifest;
+		pi?: ExtensionModuleManifest;
+	}>(content);
 	const manifest = pkg?.omp ?? pkg?.pi;
 	if (manifest && typeof manifest === "object") {
 		return manifest;
@@ -584,7 +596,7 @@ async function readExtensionModuleManifest(
  * 3. Subdirectory with package.json: `extensions/<ext>/package.json` with "omp"/"pi" field → load declared paths
  *
  * No recursion beyond one level. Complex packages must use package.json manifest.
- * Uses native glob for fast filesystem scanning with gitignore support.
+ * Supports direct child symlinked package directories under the discovery root.
  */
 export async function discoverExtensionModulePaths(_ctx: LoadContext, dir: string): Promise<string[]> {
 	const discovered = new Set<string>();
@@ -668,6 +680,8 @@ export async function discoverExtensionModulePaths(_ctx: LoadContext, dir: strin
 	return [...discovered];
 }
 
+const PACKAGE_ENTRY_CONTAINER_DIRS = new Set(["src", "dist", "build", "lib"]);
+
 /**
  * Derive a stable extension name from a path.
  */
@@ -677,6 +691,10 @@ export function getExtensionNameFromPath(extensionPath: string): string {
 	if (base === "index.ts" || base === "index.js") {
 		const parts = extensionPath.replace(/\\/g, "/").split("/");
 		const parent = parts[parts.length - 2];
+		const grandparent = parts[parts.length - 3];
+		if (parent && grandparent && PACKAGE_ENTRY_CONTAINER_DIRS.has(parent)) {
+			return grandparent;
+		}
 		return parent ?? base;
 	}
 

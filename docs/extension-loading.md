@@ -157,7 +157,7 @@ Rules and constraints:
 
 ### Ignore behavior differs by source
 
-- Native auto-discovery (`discoverExtensionModulePaths` in discovery helpers) uses native glob with `gitignore: true` and `hidden: false`.
+- Native auto-discovery (`discoverExtensionModulePaths` in discovery helpers) uses a one-level directory scan over the native roots, skips dot-prefixed entries, and supports symlinked package directories found directly beneath those roots.
 - Explicit configured directory scanning in `loader.ts` uses `readdir` rules and does **not** apply gitignore filtering.
 
 ---

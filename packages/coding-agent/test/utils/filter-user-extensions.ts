@@ -39,3 +39,11 @@ export function filterUserScoped<T extends { path: string }>(items: T[], keepRoo
 	const prefixes = [getConfigRootDir(), getAgentDir(), getPluginsDir()];
 	return items.filter(it => !prefixes.some(prefix => lexicalIsWithin(prefix, it.path)));
 }
+
+export function filterUserExtensions<T extends { path: string }>(extensions: T[]): T[] {
+	return filterUserScoped(extensions);
+}
+
+export function filterUserExtensionErrors<T extends { path: string }>(errors: T[]): T[] {
+	return filterUserScoped(errors);
+}
