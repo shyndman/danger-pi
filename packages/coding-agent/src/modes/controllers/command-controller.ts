@@ -13,6 +13,7 @@ import {
 import { Loader, Markdown, padding, Spacer, Text, visibleWidth } from "@oh-my-pi/pi-tui";
 import { formatDuration, Snowflake, sanitizeText } from "@oh-my-pi/pi-utils";
 import { shouldEnableAppendOnlyContext } from "../../config/append-only-context-mode";
+import { buildUsageAccountOrder, resolveUsageAccountKey } from "../../danger-pi/usage-account-order";
 import { type LoadedCustomShare, loadCustomShare } from "../../export/custom-share";
 import { shareSession } from "../../export/share";
 import type { CompactOptions } from "../../extensibility/extensions/types";
@@ -1583,7 +1584,7 @@ export function renderUsageReports(
 	reports: UsageReport[],
 	uiTheme: typeof theme,
 	nowMs: number,
-	availableWidth: number,
+	availableWidth: number = 100,
 	resolveActiveAccount?: (provider: string) => OAuthAccountIdentity | undefined,
 ): string {
 	const lines: string[] = [];
@@ -1611,6 +1612,7 @@ export function renderUsageReports(
 		lines.push("");
 		const providerName = formatProviderName(provider);
 		const activeAccount = resolveActiveAccount?.(provider);
+		const providerAccountOrder = buildUsageAccountOrder(provider, providerReports);
 
 		const limitGroups = new Map<
 			string,
@@ -1694,10 +1696,18 @@ export function renderUsageReports(
 			const entries = group.limits.map((limit, index) => ({
 				limit,
 				report: group.reports[index],
+				accountKey: resolveUsageAccountKey(provider, group.reports[index], limit),
 				fraction: resolveUsedFraction(limit),
 				index,
 			}));
 			entries.sort((a, b) => {
+				const aOrder = a.accountKey !== undefined ? providerAccountOrder.get(a.accountKey) : undefined;
+				const bOrder = b.accountKey !== undefined ? providerAccountOrder.get(b.accountKey) : undefined;
+				if (aOrder !== undefined || bOrder !== undefined) {
+					if (aOrder === undefined) return 1;
+					if (bOrder === undefined) return -1;
+					if (aOrder !== bOrder) return aOrder - bOrder;
+				}
 				const aFraction = a.fraction ?? -1;
 				const bFraction = b.fraction ?? -1;
 				if (aFraction !== bFraction) return bFraction - aFraction;
