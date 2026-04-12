@@ -14,6 +14,7 @@ import { Loader, Markdown, padding, Spacer, Text, visibleWidth } from "@oh-my-pi
 import { formatDuration, Snowflake, setProjectDir } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
 import { reset as resetCapabilities } from "../../capability";
+import { buildUsageAccountOrder, resolveUsageAccountKey } from "../../danger-pi/usage-account-order";
 import { clearClaudePluginRootsCache } from "../../discovery/helpers";
 import { loadCustomShare } from "../../export/custom-share";
 import type { CompactOptions } from "../../extensibility/extensions/types";
@@ -1508,11 +1509,11 @@ function resolveColumnWidth(count: number, available: number, trailing: number):
 	return ideal;
 }
 
-function renderUsageReports(
+export function renderUsageReports(
 	reports: UsageReport[],
 	uiTheme: typeof theme,
 	nowMs: number,
-	availableWidth: number,
+	availableWidth: number = 100,
 ): string {
 	const lines: string[] = [];
 	const latestFetchedAt = Math.max(...reports.map(report => report.fetchedAt ?? 0));
@@ -1538,6 +1539,7 @@ function renderUsageReports(
 	for (const { provider, providerReports } of providerEntries) {
 		lines.push("");
 		const providerName = formatProviderName(provider);
+		const providerAccountOrder = buildUsageAccountOrder(provider, providerReports);
 
 		const limitGroups = new Map<
 			string,
@@ -1566,10 +1568,18 @@ function renderUsageReports(
 			const entries = group.limits.map((limit, index) => ({
 				limit,
 				report: group.reports[index],
+				accountKey: resolveUsageAccountKey(provider, group.reports[index], limit),
 				fraction: resolveFraction(limit),
 				index,
 			}));
 			entries.sort((a, b) => {
+				const aOrder = a.accountKey !== undefined ? providerAccountOrder.get(a.accountKey) : undefined;
+				const bOrder = b.accountKey !== undefined ? providerAccountOrder.get(b.accountKey) : undefined;
+				if (aOrder !== undefined || bOrder !== undefined) {
+					if (aOrder === undefined) return 1;
+					if (bOrder === undefined) return -1;
+					if (aOrder !== bOrder) return aOrder - bOrder;
+				}
 				const aFraction = a.fraction ?? -1;
 				const bFraction = b.fraction ?? -1;
 				if (aFraction !== bFraction) return bFraction - aFraction;
