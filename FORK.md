@@ -1,5 +1,5 @@
 ---
-setup: bun install && uv tool run prek install --prepare-hooks
+setup: bun install && uv tool run prek install --prepare-hooks && bun run build:native
 changelog:
   exclude:
     - ./packages/catalog/src/models.json
