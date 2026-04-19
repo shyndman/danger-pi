@@ -97,6 +97,7 @@ import {
 } from "../config/model-resolver";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
 import type { Settings, SkillsSettings } from "../config/settings";
+import { createPromptChainExecutor, type PromptChainExecutor } from "../danger-pi/command-chain-files/runtime";
 import { RawSseDebugBuffer } from "../debug/raw-sse-buffer";
 import { loadCapability } from "../discovery";
 import { expandApplyPatchToEntries, normalizeDiff, normalizeToLF, ParseError, previewPatch, stripBom } from "../edit";
@@ -133,7 +134,7 @@ import type { CompactOptions, ContextUsage } from "../extensibility/extensions/t
 import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import type { HookCommandContext } from "../extensibility/hooks/types";
 import { type Skill, type SkillWarning, setActiveSkills } from "../extensibility/skills";
-import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
+import { executeFileSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
@@ -208,7 +209,11 @@ import { ToolChoiceQueue } from "./tool-choice-queue";
 /** Session-specific events that extend the core AgentEvent */
 export type AgentSessionEvent =
 	| AgentEvent
-	| { type: "auto_compaction_start"; reason: "threshold" | "overflow" | "idle"; action: "context-full" | "handoff" }
+	| {
+			type: "auto_compaction_start";
+			reason: "threshold" | "overflow" | "idle";
+			action: "context-full" | "handoff";
+	  }
 	| {
 			type: "auto_compaction_end";
 			action: "context-full" | "handoff";
@@ -219,12 +224,28 @@ export type AgentSessionEvent =
 			/** True when compaction was skipped for a benign reason (no model, no candidates, nothing to compact). */
 			skipped?: boolean;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+	  }
 	| { type: "retry_fallback_applied"; from: string; to: string; role: string }
 	| { type: "retry_fallback_succeeded"; model: string; role: string }
 	| { type: "ttsr_triggered"; rules: Rule[] }
-	| { type: "todo_reminder"; todos: TodoItem[]; attempt: number; maxAttempts: number }
+	| {
+			type: "todo_reminder";
+			todos: TodoItem[];
+			attempt: number;
+			maxAttempts: number;
+	  }
 	| { type: "todo_auto_clear" }
 	| { type: "irc_message"; message: CustomMessage }
 	| { type: "notice"; level: "info" | "warning" | "error"; message: string; source?: string }
@@ -748,6 +769,7 @@ export class AgentSession {
 	#thinkingLevel: ThinkingLevel | undefined;
 	#promptTemplates: PromptTemplate[];
 	#slashCommands: FileSlashCommand[];
+	#promptChainExecutor: PromptChainExecutor;
 
 	// Event subscription state
 	#unsubscribeAgent?: () => void;
@@ -946,7 +968,9 @@ export class AgentSession {
 				display,
 			});
 		} catch (error) {
-			logger.warn("Failed to acquire macOS power assertion", { error: String(error) });
+			logger.warn("Failed to acquire macOS power assertion", {
+				error: String(error),
+			});
 		}
 	}
 
@@ -957,7 +981,9 @@ export class AgentSession {
 		try {
 			assertion.stop();
 		} catch (error) {
-			logger.warn("Failed to release macOS power assertion", { error: String(error) });
+			logger.warn("Failed to release macOS power assertion", {
+				error: String(error),
+			});
 		}
 	}
 
@@ -1000,6 +1026,32 @@ export class AgentSession {
 		this.#thinkingLevel = config.thinkingLevel;
 		this.#promptTemplates = config.promptTemplates ?? [];
 		this.#slashCommands = config.slashCommands ?? [];
+		this.#promptChainExecutor = createPromptChainExecutor({
+			onTurnComplete: handler => {
+				this.subscribe(event => {
+					if (event.type === "turn_end") {
+						const message = event.message as AssistantMessage;
+						void handler({
+							stopReason: message.stopReason,
+							success: message.stopReason !== "error" && message.stopReason !== "aborted",
+						});
+					}
+				});
+			},
+			prompt: async (text, options) => {
+				await this.prompt(text, {
+					images: options?.images ? [...options.images] : undefined,
+					streamingBehavior: options?.streamingBehavior,
+				});
+				if (options?.streamingBehavior === "followUp") {
+					setTimeout(() => {
+						if (!this.agent.state.isStreaming && this.agent.hasQueuedMessages()) {
+							void this.agent.continue();
+						}
+					}, 0);
+				}
+			},
+		});
 		this.#extensionRunner = config.extensionRunner;
 		this.#skills = config.skills ?? [];
 		this.#skillWarnings = config.skillWarnings ?? [];
@@ -1416,7 +1468,10 @@ export class AgentSession {
 			const message = event.message;
 			const deobfuscatedContent = obfuscator.deobfuscateObject(message.content);
 			if (deobfuscatedContent !== message.content) {
-				displayEvent = { ...event, message: { ...message, content: deobfuscatedContent } };
+				displayEvent = {
+					...event,
+					message: { ...message, content: deobfuscatedContent },
+				};
 			}
 		}
 
@@ -1491,7 +1546,10 @@ export class AgentSession {
 					const perToolId = shouldInterrupt ? undefined : this.#extractTtsrToolCallId(matchContext);
 					if (perToolId) {
 						this.#addPerToolTtsrInjections(perToolId, matches);
-						this.#emitSessionEvent({ type: "ttsr_triggered", rules: matches }).catch(() => {});
+						this.#emitSessionEvent({
+							type: "ttsr_triggered",
+							rules: matches,
+						}).catch(() => {});
 					} else {
 						// Queue rules for injection; mark as injected only after successful enqueue.
 						this.#addPendingTtsrInjections(matches);
@@ -1502,7 +1560,10 @@ export class AgentSession {
 							this.#ensureTtsrResumePromise();
 							this.agent.abort();
 							// Notify extensions (fire-and-forget, does not block abort)
-							this.#emitSessionEvent({ type: "ttsr_triggered", rules: matches }).catch(() => {});
+							this.#emitSessionEvent({
+								type: "ttsr_triggered",
+								rules: matches,
+							}).catch(() => {});
 							// Schedule retry after a short delay
 							const retryToken = ++this.#ttsrRetryToken;
 							const generation = this.#promptGeneration;
@@ -1537,7 +1598,9 @@ export class AgentSession {
 									// Inject TTSR rules as system reminder before retry
 									const injection = this.#getTtsrInjectionContent();
 									if (injection) {
-										const details = { rules: injection.rules.map(rule => rule.name) };
+										const details = {
+											rules: injection.rules.map(rule => rule.name),
+										};
 										this.agent.appendMessage({
 											role: "custom",
 											customType: "ttsr-injection",
@@ -1663,7 +1726,12 @@ export class AgentSession {
 			if (event.message.role === "toolResult") {
 				const { toolName, details, isError, content } = event.message as {
 					toolName?: string;
-					details?: { path?: string; phases?: TodoPhase[]; report?: string; startedAt?: string };
+					details?: {
+						path?: string;
+						phases?: TodoPhase[];
+						report?: string;
+						startedAt?: string;
+					};
 					isError?: boolean;
 					content?: Array<TextContent | ImageContent>;
 				};
@@ -1965,7 +2033,13 @@ export class AgentSession {
 		if (this.#pendingTtsrInjections.length === 0) return undefined;
 		const rules = this.#pendingTtsrInjections;
 		const content = rules
-			.map(r => prompt.render(ttsrInterruptTemplate, { name: r.name, path: r.path, content: r.content }))
+			.map(r =>
+				prompt.render(ttsrInterruptTemplate, {
+					name: r.name,
+					path: r.path,
+					content: r.content,
+				}),
+			)
 			.join("\n\n");
 		this.#pendingTtsrInjections = [];
 		return { content, rules };
@@ -2535,7 +2609,10 @@ export class AgentSession {
 			this.#turnIndex = 0;
 			await this.#extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
-			await this.#extensionRunner.emit({ type: "agent_end", messages: event.messages });
+			await this.#extensionRunner.emit({
+				type: "agent_end",
+				messages: event.messages,
+			});
 		} else if (event.type === "turn_start") {
 			const hookEvent: TurnStartEvent = {
 				type: "turn_start",
@@ -2630,7 +2707,10 @@ export class AgentSession {
 				finalError: event.finalError,
 			});
 		} else if (event.type === "ttsr_triggered") {
-			await this.#extensionRunner.emit({ type: "ttsr_triggered", rules: event.rules });
+			await this.#extensionRunner.emit({
+				type: "ttsr_triggered",
+				rules: event.rules,
+			});
 		} else if (event.type === "todo_reminder") {
 			await this.#extensionRunner.emit({
 				type: "todo_reminder",
@@ -2731,7 +2811,9 @@ export class AgentSession {
 				await this.#extensionRunner.emit({ type: "session_shutdown" });
 			}
 		} catch (error) {
-			logger.warn("Failed to emit session_shutdown event", { error: String(error) });
+			logger.warn("Failed to emit session_shutdown event", {
+				error: String(error),
+			});
 		}
 		await this.#cancelPostPromptTasks();
 		this.#clearTodoClearTimers();
@@ -3222,7 +3304,10 @@ export class AgentSession {
 
 	async #applyActiveToolsByName(
 		toolNames: string[],
-		options?: { persistMCPSelection?: boolean; previousSelectedMCPToolNames?: string[] },
+		options?: {
+			persistMCPSelection?: boolean;
+			previousSelectedMCPToolNames?: string[];
+		},
 	): Promise<void> {
 		toolNames = [...new Set(toolNames.map(name => name.toLowerCase()))];
 		const previousSelectedMCPToolNames = options?.previousSelectedMCPToolNames ?? this.getSelectedMCPToolNames();
@@ -3501,7 +3586,9 @@ export class AgentSession {
 		);
 
 		const nextActive = [...this.#getActiveNonMCPToolNames(), ...this.getSelectedMCPToolNames()];
-		await this.#applyActiveToolsByName(nextActive, { previousSelectedMCPToolNames });
+		await this.#applyActiveToolsByName(nextActive, {
+			previousSelectedMCPToolNames,
+		});
 	}
 
 	/**
@@ -3661,7 +3748,10 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model; thinkingLevel?: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{
+		model: Model;
+		thinkingLevel?: ThinkingLevel;
+	}> {
 		return this.#scopedModels;
 	}
 
@@ -3788,6 +3878,10 @@ export class AgentSession {
 	/** Loaded file-based slash commands (read-only). */
 	get fileCommands(): ReadonlyArray<FileSlashCommand> {
 		return this.#slashCommands;
+	}
+
+	get promptChainExecutor(): PromptChainExecutor {
+		return this.#promptChainExecutor;
 	}
 
 	/** Custom commands (TypeScript slash commands and MCP prompts) */
@@ -3921,7 +4015,16 @@ export class AgentSession {
 			// Try file-based slash commands (markdown files from commands/ directories)
 			// Only if text still starts with "/" (wasn't transformed by custom command)
 			if (text.startsWith("/")) {
-				text = await expandSlashCommand(text, this.#slashCommands, { cwd: this.sessionManager.getCwd() });
+				const fileCommandResult = await executeFileSlashCommand(text, this.#slashCommands, {
+					cwd: this.sessionManager.getCwd(),
+					images: options?.images,
+					promptChainExecutor: this.#promptChainExecutor,
+					streamingBehavior: options?.streamingBehavior,
+				});
+				if (fileCommandResult.kind === "handled") {
+					return;
+				}
+				text = fileCommandResult.text;
 			}
 		}
 
@@ -3953,8 +4056,18 @@ export class AgentSession {
 
 		const promptAttribution = options?.attribution ?? (options?.synthetic ? "agent" : "user");
 		const message = options?.synthetic
-			? { role: "developer" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() }
-			: { role: "user" as const, content: userContent, attribution: promptAttribution, timestamp: Date.now() };
+			? {
+					role: "developer" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				}
+			: {
+					role: "user" as const,
+					content: userContent,
+					attribution: promptAttribution,
+					timestamp: Date.now(),
+				};
 
 		if (eagerTodoPrelude) {
 			this.#toolChoiceQueue.pushOnce(eagerTodoPrelude.toolChoice, {
@@ -3993,7 +4106,9 @@ export class AgentSession {
 			if (!options?.streamingBehavior) {
 				throw new AgentBusyError();
 			}
-			await this.sendCustomMessage(message, { deliverAs: options.streamingBehavior });
+			await this.sendCustomMessage(message, {
+				deliverAs: options.streamingBehavior,
+			});
 			return;
 		}
 
@@ -4202,7 +4317,9 @@ export class AgentSession {
 			getContextUsage: () => this.getContextUsage(),
 			waitForIdle: () => this.waitForIdle(),
 			newSession: async options => {
-				const success = await this.newSession({ parentSession: options?.parentSession });
+				const success = await this.newSession({
+					parentSession: options?.parentSession,
+				});
 				if (!success) {
 					return { cancelled: true };
 				}
@@ -4216,7 +4333,9 @@ export class AgentSession {
 				return { cancelled: result.cancelled };
 			},
 			navigateTree: async (targetId, options) => {
-				const result = await this.navigateTree(targetId, { summarize: options?.summarize });
+				const result = await this.navigateTree(targetId, {
+					summarize: options?.summarize,
+				});
 				return { cancelled: result.cancelled };
 			},
 			compact: async instructionsOrOptions => {
@@ -4466,7 +4585,10 @@ export class AgentSession {
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details" | "attribution">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+		options?: {
+			triggerTurn?: boolean;
+			deliverAs?: "steer" | "followUp" | "nextTurn";
+		},
 	): Promise<void> {
 		const appMessage: CustomMessage<T> = {
 			role: "custom",
@@ -4824,7 +4946,9 @@ export class AgentSession {
 		this.sessionManager.appendThinkingLevelChange(this.thinkingLevel);
 		this.sessionManager.appendServiceTierChange(this.serviceTier ?? null);
 		if (nextDiscoverySessionToolNames) {
-			await this.#applyActiveToolsByName(nextDiscoverySessionToolNames, { persistMCPSelection: false });
+			await this.#applyActiveToolsByName(nextDiscoverySessionToolNames, {
+				persistMCPSelection: false,
+			});
 			if (this.getSelectedMCPToolNames().length > 0) {
 				this.sessionManager.appendMCPToolSelection(this.getSelectedMCPToolNames());
 			}
@@ -4895,7 +5019,9 @@ export class AgentSession {
 		try {
 			const oldDirStat = await fs.promises.stat(oldArtifactDir);
 			if (oldDirStat.isDirectory()) {
-				await fs.promises.cp(oldArtifactDir, newArtifactDir, { recursive: true });
+				await fs.promises.cp(oldArtifactDir, newArtifactDir, {
+					recursive: true,
+				});
 			}
 		} catch (err) {
 			if (!isEnoent(err)) {
@@ -5009,7 +5135,9 @@ export class AgentSession {
 
 		const currentModel = this.model;
 		if (!currentModel) return undefined;
-		const matchPreferences = { usageOrder: this.settings.getStorage()?.getModelUsageOrder() };
+		const matchPreferences = {
+			usageOrder: this.settings.getStorage()?.getModelUsageOrder(),
+		};
 		const roleModels: Array<{
 			role: string;
 			model: Model;
@@ -5060,7 +5188,11 @@ export class AgentSession {
 			}
 		}
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, role: next.role };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			role: next.role,
+		};
 	}
 
 	async #getScopedModelsWithApiKey(): Promise<Array<{ model: Model; thinkingLevel?: ThinkingLevel }>> {
@@ -5109,7 +5241,11 @@ export class AgentSession {
 		this.setThinkingLevel(next.thinkingLevel);
 		await this.#syncEditToolModeAfterModelChange(previousEditMode);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: true,
+		};
 	}
 
 	async #cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
@@ -5139,7 +5275,11 @@ export class AgentSession {
 		this.setThinkingLevel(this.thinkingLevel);
 		await this.#syncEditToolModeAfterModelChange(previousEditMode);
 
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return {
+			model: nextModel,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: false,
+		};
 	}
 
 	/**
@@ -5561,7 +5701,6 @@ export class AgentSession {
 				onSourceAbort();
 			}
 		}
-
 		try {
 			if (handoffSignal.aborted) {
 				throw new Error("Handoff cancelled");
@@ -5770,9 +5909,14 @@ export class AgentSession {
 			logger.warn("Rewind branch checkpoint missing, falling back to root", {
 				error: error instanceof Error ? error.message : String(error),
 			});
-			this.sessionManager.branchWithSummary(null, report, { startedAt: checkpointState.startedAt });
+			this.sessionManager.branchWithSummary(null, report, {
+				startedAt: checkpointState.startedAt,
+			});
 		}
-		const details = { startedAt: checkpointState.startedAt, rewoundAt: new Date().toISOString() };
+		const details = {
+			startedAt: checkpointState.startedAt,
+			rewoundAt: new Date().toISOString(),
+		};
 		this.agent.appendMessage({
 			role: "custom",
 			customType: "rewind-report",
@@ -5900,7 +6044,9 @@ export class AgentSession {
 
 		const remindersMax = this.settings.get("todo.reminders.max");
 		if (this.#todoReminderCount >= remindersMax) {
-			logger.debug("Todo completion: max reminders reached", { count: this.#todoReminderCount });
+			logger.debug("Todo completion: max reminders reached", {
+				count: this.#todoReminderCount,
+			});
 			return;
 		}
 
@@ -6094,7 +6240,13 @@ export class AgentSession {
 										];
 									}
 									if (block.type === "text") {
-										return [{ type: block.type, text: block.text, textSignature: block.textSignature }];
+										return [
+											{
+												type: block.type,
+												text: block.text,
+												textSignature: block.textSignature,
+											},
+										];
 									}
 									return [this.#normalizeProviderReplayValue(block)];
 								})
@@ -6238,12 +6390,19 @@ export class AgentSession {
 				: this.settings.getModelRole(role);
 
 		if (!roleModelStr) {
-			return { model: undefined, thinkingLevel: undefined, explicitThinkingLevel: false, warning: undefined };
+			return {
+				model: undefined,
+				thinkingLevel: undefined,
+				explicitThinkingLevel: false,
+				warning: undefined,
+			};
 		}
 
 		return resolveModelRoleValue(roleModelStr, availableModels, {
 			settings: this.settings,
-			matchPreferences: { usageOrder: this.settings.getStorage()?.getModelUsageOrder() },
+			matchPreferences: {
+				usageOrder: this.settings.getStorage()?.getModelUsageOrder(),
+			},
 			modelRegistry: this.#modelRegistry,
 		});
 	}
@@ -6407,7 +6566,11 @@ export class AgentSession {
 
 		let action: "context-full" | "handoff" =
 			compactionSettings.strategy === "handoff" && reason !== "overflow" ? "handoff" : "context-full";
-		await this.#emitSessionEvent({ type: "auto_compaction_start", reason, action });
+		await this.#emitSessionEvent({
+			type: "auto_compaction_start",
+			reason,
+			action,
+		});
 		// Abort any older auto-compaction before installing this run's controller.
 		this.#autoCompactionAbortController?.abort();
 		const autoCompactionAbortController = new AbortController();
@@ -6691,7 +6854,13 @@ export class AgentSession {
 				details,
 				preserveData,
 			};
-			await this.#emitSessionEvent({ type: "auto_compaction_end", action, result, aborted: false, willRetry });
+			await this.#emitSessionEvent({
+				type: "auto_compaction_end",
+				action,
+				result,
+				aborted: false,
+				willRetry,
+			});
 
 			if (!willRetry && reason !== "idle" && compactionSettings.autoContinue !== false) {
 				this.#scheduleAutoContinuePrompt(generation);
@@ -7572,7 +7741,10 @@ export class AgentSession {
 			attribution: "agent",
 			timestamp: incomingTimestamp,
 		};
-		void this.#emitSessionEvent({ type: "irc_message", message: incomingRecord });
+		void this.#emitSessionEvent({
+			type: "irc_message",
+			message: incomingRecord,
+		});
 		this.#forwardIrcRelayToMain({
 			from: args.from,
 			to: this.#agentId ?? "?",
@@ -7643,7 +7815,12 @@ export class AgentSession {
 			customType: "irc:relay",
 			content: `[IRC \`${args.from}\` ${arrow} \`${args.to}\`]\n\n${args.body}`,
 			display: true,
-			details: { from: args.from, to: args.to, body: args.body, kind: args.kind },
+			details: {
+				from: args.from,
+				to: args.to,
+				body: args.body,
+				kind: args.kind,
+			},
 			attribution: "agent",
 			timestamp: args.timestamp,
 		};
@@ -7901,7 +8078,9 @@ export class AgentSession {
 				!switchingToDifferentSession &&
 				this.#didSessionMessagesChange(previousSessionContext.messages, sessionContext.messages);
 			const fallbackSelectedMCPToolNames = this.#getSessionDefaultSelectedMCPToolNames(sessionPath);
-			await this.#restoreMCPSelectionsForSessionContext(sessionContext, { fallbackSelectedMCPToolNames });
+			await this.#restoreMCPSelectionsForSessionContext(sessionContext, {
+				fallbackSelectedMCPToolNames,
+			});
 
 			// Emit session_switch event to hooks
 			if (this.#extensionRunner) {
@@ -8058,7 +8237,9 @@ export class AgentSession {
 		this.#cancelOwnAsyncJobs();
 
 		if (!selectedEntry.parentId) {
-			await this.sessionManager.newSession({ parentSession: previousSessionFile });
+			await this.sessionManager.newSession({
+				parentSession: previousSessionFile,
+			});
 		} else {
 			this.sessionManager.createBranchedSession(selectedEntry.parentId);
 		}
@@ -8265,9 +8446,19 @@ export class AgentSession {
 				fromExtension: summaryText ? fromExtension : undefined,
 			});
 			const rawContext = this.sessionManager.buildSessionContext();
-			return { editorText, cancelled: false, summaryEntry, sessionContext: rawContext };
+			return {
+				editorText,
+				cancelled: false,
+				summaryEntry,
+				sessionContext: rawContext,
+			};
 		}
-		return { editorText, cancelled: false, summaryEntry, sessionContext: stateContext };
+		return {
+			editorText,
+			cancelled: false,
+			summaryEntry,
+			sessionContext: stateContext,
+		};
 	}
 
 	/**
@@ -8483,7 +8674,10 @@ export class AgentSession {
 	 */
 	async exportToHtml(outputPath?: string): Promise<string> {
 		const themeName = getCurrentThemeName();
-		return exportSessionToHtml(this.sessionManager, this.state, { outputPath, themeName });
+		return exportSessionToHtml(this.sessionManager, this.state, {
+			outputPath,
+			themeName,
+		});
 	}
 
 	// =========================================================================

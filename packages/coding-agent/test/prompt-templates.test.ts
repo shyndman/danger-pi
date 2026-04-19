@@ -282,6 +282,7 @@ describe("hashline prompt helpers", () => {
 describe("template expansion fallback", () => {
 	function createSlashCommand(content: string): FileSlashCommand {
 		return {
+			kind: "template",
 			name: "test-command",
 			description: "Test command",
 			content,
