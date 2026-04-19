@@ -1,12 +1,12 @@
+import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { parseFrontmatter } from "@oh-my-pi/pi-utils";
-import { slashCommandCapability } from "../capability/slash-command";
-import type { SourceMeta } from "../capability/types";
+import { isPromptChainSlashCommand, type SlashCommand, slashCommandCapability } from "../capability/slash-command";
 import {
 	appendInlineArgsFallback,
 	renderPromptTemplate,
 	templateUsesInlineArgPlaceholders,
 } from "../config/prompt-templates";
-import type { SlashCommand } from "../discovery";
+import type { PromptChainExecutor, PromptChainStreamingBehavior } from "../danger-pi/command-chain-files/runtime";
 import { loadCapability } from "../discovery";
 import { EMBEDDED_COMMAND_TEMPLATES } from "../task/commands";
 import { parseCommandArgs, substituteArgs } from "../utils/command-args";
@@ -26,19 +26,35 @@ export interface SlashCommandInfo {
 
 export type { BuiltinSlashCommand, SubcommandDef } from "../slash-commands/types";
 
-/**
- * Represents a custom slash command loaded from a file
- */
-export interface FileSlashCommand {
+interface BaseFileSlashCommand {
 	name: string;
 	description: string;
+	source: string;
+	_source?: SlashCommand["_source"];
+}
+
+export interface TemplateFileSlashCommand extends BaseFileSlashCommand {
+	kind: "template";
 	content: string;
-	source: string; // e.g., "via Claude Code (User)"
-	/** Source metadata for display */
-	_source?: SourceMeta;
+}
+
+export interface PromptChainFileSlashCommand extends BaseFileSlashCommand {
+	kind: "prompt-chain";
+	stepTemplates: readonly string[];
+}
+
+export type FileSlashCommand = TemplateFileSlashCommand | PromptChainFileSlashCommand;
+
+export function isPromptChainFileSlashCommand(command: FileSlashCommand): command is PromptChainFileSlashCommand {
+	return command.kind === "prompt-chain";
+}
+
+export function isTemplateFileSlashCommand(command: FileSlashCommand): command is TemplateFileSlashCommand {
+	return command.kind === "template";
 }
 
 const EMBEDDED_SLASH_COMMANDS = EMBEDDED_COMMAND_TEMPLATES;
+const COMMAND_FILE_WARNING_PREFIX = "Command file errors:";
 
 function parseCommandTemplate(
 	content: string,
@@ -47,7 +63,6 @@ function parseCommandTemplate(
 	const { frontmatter, body } = parseFrontmatter(content, options);
 	const frontmatterDesc = typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
 
-	// Get description from frontmatter or first non-empty line
 	let description = frontmatterDesc;
 	if (!description) {
 		const firstLine = body.split("\n").find(line => line.trim());
@@ -61,46 +76,58 @@ function parseCommandTemplate(
 }
 
 export interface LoadSlashCommandsOptions {
-	/** Working directory for project-local commands. Default: getProjectDir() */
 	cwd?: string;
 }
 
-/**
- * Load all custom slash commands using the capability API.
- * Loads from all registered providers (builtin, user, project).
- */
-export async function loadSlashCommands(options: LoadSlashCommandsOptions = {}): Promise<FileSlashCommand[]> {
+export interface LoadSlashCommandSetResult {
+	commands: FileSlashCommand[];
+	warnings: string[];
+}
+
+function materializeCapabilityCommand(command: SlashCommand): FileSlashCommand {
+	const capitalizedLevel = command.level.charAt(0).toUpperCase() + command.level.slice(1);
+	const source = `via ${command._source.providerName} ${capitalizedLevel}`;
+
+	if (isPromptChainSlashCommand(command)) {
+		return {
+			kind: "prompt-chain",
+			name: command.name,
+			description: command.description,
+			stepTemplates: [...command.stepTemplates],
+			source,
+			_source: command._source,
+		};
+	}
+
+	const { description, body } = parseCommandTemplate(command.content, {
+		source: command.path ?? `slash-command:${command.name}`,
+		level: command.level === "native" ? "fatal" : "warn",
+	});
+	return {
+		kind: "template",
+		name: command.name,
+		description,
+		content: body,
+		source,
+		_source: command._source,
+	};
+}
+
+export async function loadSlashCommandSet(options: LoadSlashCommandsOptions = {}): Promise<LoadSlashCommandSetResult> {
 	const result = await loadCapability<SlashCommand>(slashCommandCapability.id, { cwd: options.cwd });
 
-	const fileCommands: FileSlashCommand[] = result.items.map(cmd => {
-		const { description, body } = parseCommandTemplate(cmd.content, {
-			source: cmd.path ?? `slash-command:${cmd.name}`,
-			level: cmd.level === "native" ? "fatal" : "warn",
-		});
-
-		// Format source label: "via ProviderName Level"
-		const capitalizedLevel = cmd.level.charAt(0).toUpperCase() + cmd.level.slice(1);
-		const sourceStr = `via ${cmd._source.providerName} ${capitalizedLevel}`;
-
-		return {
-			name: cmd.name,
-			description,
-			content: body,
-			source: sourceStr,
-			_source: cmd._source,
-		};
-	});
-
-	const seenNames = new Set(fileCommands.map(cmd => cmd.name));
-	for (const cmd of EMBEDDED_SLASH_COMMANDS) {
-		const name = cmd.name.replace(/\.md$/, "");
+	const commands: FileSlashCommand[] = result.items.map(materializeCapabilityCommand);
+	const seenNames = new Set(commands.map(command => command.name));
+	for (const command of EMBEDDED_SLASH_COMMANDS) {
+		const name = command.name.replace(/\.md$/, "");
 		if (seenNames.has(name)) continue;
 
-		const { description, body } = parseCommandTemplate(cmd.content, {
-			source: `embedded:${cmd.name}`,
+		const { description, body } = parseCommandTemplate(command.content, {
+			source: `embedded:${command.name}`,
 			level: "fatal",
 		});
-		fileCommands.push({
+		commands.push({
+			kind: "template",
 			name,
 			description,
 			content: body,
@@ -109,16 +136,37 @@ export async function loadSlashCommands(options: LoadSlashCommandsOptions = {}):
 		seenNames.add(name);
 	}
 
-	return fileCommands;
+	return {
+		commands,
+		warnings: [...(result.warnings ?? [])],
+	};
 }
 
-/**
- * Expand a slash command if it matches a file-based command.
- * Returns the expanded content or the original text if not a slash command.
- */
+export async function loadSlashCommands(options: LoadSlashCommandsOptions = {}): Promise<FileSlashCommand[]> {
+	return (await loadSlashCommandSet(options)).commands;
+}
+
+export function renderSlashCommandWarnings(warnings: readonly string[]): string | undefined {
+	const bodies = warnings
+		.map(warning => {
+			if (warning.startsWith(`${COMMAND_FILE_WARNING_PREFIX}\n\n`)) {
+				return warning.slice(COMMAND_FILE_WARNING_PREFIX.length + 2).trim();
+			}
+			if (warning.startsWith(COMMAND_FILE_WARNING_PREFIX)) {
+				return warning.slice(COMMAND_FILE_WARNING_PREFIX.length).trim();
+			}
+			return warning.trim();
+		})
+		.filter(Boolean);
+	if (bodies.length === 0) {
+		return undefined;
+	}
+	return `${COMMAND_FILE_WARNING_PREFIX}\n\n${bodies.join("\n\n")}`;
+}
+
 export async function expandSlashCommand(
 	text: string,
-	fileCommands: FileSlashCommand[],
+	fileCommands: readonly FileSlashCommand[],
 	options: { cwd: string },
 ): Promise<string> {
 	if (!text.startsWith("/")) return text;
@@ -126,24 +174,58 @@ export async function expandSlashCommand(
 	const spaceIndex = text.indexOf(" ");
 	const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 	const argsString = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
-
-	const fileCommand = fileCommands.find(cmd => cmd.name === commandName);
-	if (fileCommand) {
-		const args = parseCommandArgs(argsString);
-		const argsText = args.join(" ");
-		const usesInlineArgPlaceholders = templateUsesInlineArgPlaceholders(fileCommand.content);
-		const substituted = substituteArgs(fileCommand.content, args);
-		const rendered = renderPromptTemplate(substituted, { args, ARGUMENTS: argsText, arguments: argsText });
-		const expanded =
-			fileCommand._source?.provider === "native"
-				? await interpolateShellExpressions({
-						body: rendered,
-						cwd: options.cwd,
-						sourceLabel: `/${fileCommand.name}`,
-					})
-				: rendered;
-		return appendInlineArgsFallback(expanded, argsText, usesInlineArgPlaceholders);
+	const fileCommand = fileCommands.find(command => command.name === commandName);
+	if (!fileCommand || !isTemplateFileSlashCommand(fileCommand)) {
+		return text;
 	}
 
-	return text;
+	const args = parseCommandArgs(argsString);
+	const argsText = args.join(" ");
+	const usesInlineArgPlaceholders = templateUsesInlineArgPlaceholders(fileCommand.content);
+	const substituted = substituteArgs(fileCommand.content, args);
+	const rendered = renderPromptTemplate(substituted, { args, ARGUMENTS: argsText, arguments: argsText });
+	const expanded =
+		fileCommand._source?.provider === "native"
+			? await interpolateShellExpressions({
+					body: rendered,
+					cwd: options.cwd,
+					sourceLabel: `/${fileCommand.name}`,
+				})
+			: rendered;
+	return appendInlineArgsFallback(expanded, argsText, usesInlineArgPlaceholders);
+}
+
+export async function executeFileSlashCommand(
+	text: string,
+	fileCommands: readonly FileSlashCommand[],
+	options: {
+		cwd: string;
+		promptChainExecutor: PromptChainExecutor;
+		streamingBehavior?: PromptChainStreamingBehavior;
+		images?: readonly ImageContent[];
+	},
+): Promise<{ kind: "text"; text: string } | { kind: "handled" }> {
+	if (!text.startsWith("/")) {
+		return { kind: "text", text };
+	}
+
+	const spaceIndex = text.indexOf(" ");
+	const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+	const argsString = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
+	const fileCommand = fileCommands.find(command => command.name === commandName);
+	if (!fileCommand) {
+		return { kind: "text", text };
+	}
+	if (isTemplateFileSlashCommand(fileCommand)) {
+		return {
+			kind: "text",
+			text: await expandSlashCommand(text, fileCommands, { cwd: options.cwd }),
+		};
+	}
+
+	await options.promptChainExecutor.execute(fileCommand.name, fileCommand.stepTemplates, argsString, {
+		images: options.images,
+		streamingBehavior: options.streamingBehavior,
+	});
+	return { kind: "handled" };
 }

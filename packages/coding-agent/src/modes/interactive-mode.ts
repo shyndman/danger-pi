@@ -69,7 +69,7 @@ import type {
 } from "../extensibility/extensions";
 import type { CompactOptions } from "../extensibility/extensions/types";
 import { loadSkills, type Skill } from "../extensibility/skills";
-import { loadSlashCommands } from "../extensibility/slash-commands";
+import { loadSlashCommandSet, renderSlashCommandWarnings } from "../extensibility/slash-commands";
 import { type GuidedGoalMessage, runGuidedGoalTurn } from "../goals/guided-setup";
 import type { Goal, GoalModeState } from "../goals/state";
 import { resolveLocalUrlToPath } from "../internal-urls";
@@ -1099,7 +1099,7 @@ export class InteractiveMode implements InteractiveModeContext {
 	/** Reload slash commands and autocomplete for the provided working directory. */
 	async refreshSlashCommandState(cwd?: string): Promise<void> {
 		const basePath = cwd ?? this.sessionManager.getCwd();
-		const fileCommands = await loadSlashCommands({ cwd: basePath });
+		const { commands: fileCommands, warnings } = await loadSlashCommandSet({ cwd: basePath });
 		this.fileSlashCommands = new Set(fileCommands.map(cmd => cmd.name));
 		const fileSlashCommands: SlashCommand[] = fileCommands.map(cmd => ({
 			name: cmd.name,
@@ -1137,6 +1137,10 @@ export class InteractiveMode implements InteractiveModeContext {
 		);
 		this.#applyAutocompleteProvider();
 		this.session.setSlashCommands(fileCommands);
+		const warningBlock = renderSlashCommandWarnings(warnings);
+		if (warningBlock) {
+			this.showWarning(warningBlock);
+		}
 	}
 
 	/**

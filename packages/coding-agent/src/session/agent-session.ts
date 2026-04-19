@@ -193,6 +193,7 @@ import {
 	onModelRolesChanged,
 	validateProviderMaxInFlightRequests,
 } from "../config/settings";
+import { createPromptChainExecutor, type PromptChainExecutor } from "../danger-pi/command-chain-files/runtime";
 import { RawSseDebugBuffer } from "../debug/raw-sse-buffer";
 import { loadCapability } from "../discovery";
 import { expandApplyPatchToEntries, normalizeDiff, normalizeToLF, ParseError, previewPatch, stripBom } from "../edit";
@@ -236,7 +237,7 @@ import { ExtensionToolWrapper } from "../extensibility/extensions/wrapper";
 import type { HookCommandContext } from "../extensibility/hooks/types";
 import type { RecoveredRetryError } from "../extensibility/shared-events";
 import { type Skill, type SkillWarning, setActiveSkills } from "../extensibility/skills";
-import { expandSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
+import { executeFileSlashCommand, type FileSlashCommand } from "../extensibility/slash-commands";
 import { GoalRuntime } from "../goals/runtime";
 import type { Goal, GoalModeState } from "../goals/state";
 import type { HindsightSessionState } from "../hindsight/state";
@@ -1701,6 +1702,7 @@ export class AgentSession {
 
 	#promptTemplates: PromptTemplate[];
 	#slashCommands: FileSlashCommand[];
+	#promptChainExecutor: PromptChainExecutor;
 
 	// Event subscription state
 	#unsubscribeAgent?: () => void;
@@ -2467,6 +2469,32 @@ export class AgentSession {
 
 		this.#promptTemplates = config.promptTemplates ?? [];
 		this.#slashCommands = config.slashCommands ?? [];
+		this.#promptChainExecutor = createPromptChainExecutor({
+			onTurnComplete: handler => {
+				this.subscribe(event => {
+					if (event.type === "turn_end") {
+						const message = event.message as AssistantMessage;
+						void handler({
+							stopReason: message.stopReason,
+							success: message.stopReason !== "error" && message.stopReason !== "aborted",
+						});
+					}
+				});
+			},
+			prompt: async (text, options) => {
+				await this.prompt(text, {
+					images: options?.images ? [...options.images] : undefined,
+					streamingBehavior: options?.streamingBehavior,
+				});
+				if (options?.streamingBehavior === "followUp") {
+					setTimeout(() => {
+						if (!this.agent.state.isStreaming && this.agent.hasQueuedMessages()) {
+							void this.agent.continue();
+						}
+					}, 0);
+				}
+			},
+		});
 		this.#extensionRunner = config.extensionRunner;
 		this.#skills = config.skills ?? [];
 		this.#skillWarnings = config.skillWarnings ?? [];
@@ -7743,6 +7771,10 @@ export class AgentSession {
 		return this.#slashCommands;
 	}
 
+	get promptChainExecutor(): PromptChainExecutor {
+		return this.#promptChainExecutor;
+	}
+
 	/** Custom commands (TypeScript slash commands and MCP prompts) */
 	get customCommands(): ReadonlyArray<LoadedCustomCommand> {
 		if (this.#mcpPromptCommands.length === 0) return this.#customCommands;
@@ -8072,7 +8104,16 @@ export class AgentSession {
 			// Try file-based slash commands (markdown files from commands/ directories)
 			// Only if text still starts with "/" (wasn't transformed by custom command)
 			if (text.startsWith("/")) {
-				text = await expandSlashCommand(text, this.#slashCommands, { cwd: this.sessionManager.getCwd() });
+				const fileCommandResult = await executeFileSlashCommand(text, this.#slashCommands, {
+					cwd: this.sessionManager.getCwd(),
+					images: options?.images,
+					promptChainExecutor: this.#promptChainExecutor,
+					streamingBehavior: options?.streamingBehavior,
+				});
+				if (fileCommandResult.kind === "handled") {
+					return true;
+				}
+				text = fileCommandResult.text;
 			}
 		}
 
@@ -10709,7 +10750,6 @@ export class AgentSession {
 				onSourceAbort();
 			}
 		}
-
 		try {
 			if (handoffSignal.aborted) {
 				throw new Error("Handoff cancelled");
