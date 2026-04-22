@@ -33,7 +33,7 @@ This fork adds the following feature areas on top of upstream:
 - Native `.omp` live reload for commands and skills
 - Native `.cmd.yaml` prompt-chain command files in `.omp/commands` and `~/.omp/agent/commands`: `foo.cmd.yaml` registers `/foo`, same-directory `.md` siblings win on name collisions, and invalid YAML/schema files surface as non-fatal interactive warning blocks during startup and reload
 - `/reload` support for refreshing runtime state
-- Fork-local bundled `/title` extension for manually setting the current session title from interactive mode
+- Fork-local bundled `/title` extension for manually setting the current session title from interactive mode: `/title <name>` applies immediately, bare `/title` opens the editor, and extension slash commands execute locally without optimistic prompt/loader UI
 - Codex OAuth account stickiness per session / top-level agent
 - Fork-local Codex account selection: keep reusing a still-usable sticky pin to avoid cache churn; when a new pin is needed, prefer Spark/Pro accounts first, then choose the non-exhausted account whose long window renews soonest; fail fast if Codex ranking data is missing so regressions surface immediately.
 - Codex affinity and cache-observability logging
