@@ -13,7 +13,7 @@ import {
 	resolveDefaultRepoMemoized,
 } from "@oh-my-pi/pi-coding-agent/tools/gh";
 import * as git from "@oh-my-pi/pi-coding-agent/utils/git";
-import { getAgentDir, hashPath, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
+import { getAgentDir, getWorktreesDir, hashPath, removeWithRetries, setAgentDir } from "@oh-my-pi/pi-utils";
 
 // Isolate every `git` invocation in this file from the developer's host
 // configuration. The fixture spawns dozens of git subprocesses against tiny
@@ -176,9 +176,9 @@ async function createPrFixture(): Promise<PrFixture> {
 }
 
 /**
- * Stub `os.homedir()` AND rebuild the cached `dirs` resolver in pi-utils so
- * `getWorktreesDir()` resolves under an isolated temp home instead of the
- * user's real `~/.omp/wt`. Returns the temp home and a cleanup hook.
+ * Stub `os.homedir()`, isolate XDG data/state dirs, and rebuild the cached
+ * `dirs` resolver in pi-utils so `getWorktreesDir()` resolves into temp-owned
+ * paths instead of the user's real config roots.
  */
 interface TempHome {
 	home: string;
@@ -187,6 +187,10 @@ interface TempHome {
 
 async function setupTempHome(): Promise<{ home: string; cleanup: () => Promise<void> }> {
 	const home = await fs.mkdtemp(path.join(os.tmpdir(), "gh-pr-tool-home-"));
+	const xdgDataHome = path.join(home, ".local", "share");
+	const xdgStateHome = path.join(home, ".local", "state");
+	await fs.mkdir(path.join(xdgDataHome, "omp"), { recursive: true });
+	await fs.mkdir(path.join(xdgStateHome, "omp"), { recursive: true });
 	vi.spyOn(os, "homedir").mockReturnValue(home);
 	// Clear XDG_*_HOME so the rebuilt resolver routes `dirs.rootSubdir("wt", "data")`
 	// through the spied homedir instead of `$XDG_DATA_HOME/omp/wt` (CI sets these).
@@ -196,6 +200,10 @@ async function setupTempHome(): Promise<{ home: string; cleanup: () => Promise<v
 		xdgPrevious[key] = process.env[key];
 		delete process.env[key];
 	}
+	const originalXdgDataHome = process.env.XDG_DATA_HOME;
+	const originalXdgStateHome = process.env.XDG_STATE_HOME;
+	process.env.XDG_DATA_HOME = xdgDataHome;
+	process.env.XDG_STATE_HOME = xdgStateHome;
 	// `dirs.configRoot` is computed at constructor time from `os.homedir()`, so
 	// we must rebuild the resolver after the spy + env scrub are in place.
 	// `setAgentDir` recreates it; we point it at the temp home's default agent dir.
@@ -204,6 +212,16 @@ async function setupTempHome(): Promise<{ home: string; cleanup: () => Promise<v
 	return {
 		home,
 		cleanup: async () => {
+			if (originalXdgDataHome === undefined) {
+				delete process.env.XDG_DATA_HOME;
+			} else {
+				process.env.XDG_DATA_HOME = originalXdgDataHome;
+			}
+			if (originalXdgStateHome === undefined) {
+				delete process.env.XDG_STATE_HOME;
+			} else {
+				process.env.XDG_STATE_HOME = originalXdgStateHome;
+			}
 			setAgentDir(originalAgentDir);
 			for (const key of xdgKeys) {
 				const previous = xdgPrevious[key];
@@ -221,10 +239,10 @@ async function setupTempHome(): Promise<{ home: string; cleanup: () => Promise<v
  * symlinks (matches the production `fs.realpath` step) so assertions match
  * the value rendered into the tool result.
  */
-async function expectedWorktreePath(home: string, primaryRoot: string, localBranch: string): Promise<string> {
+async function expectedWorktreePath(primaryRoot: string, localBranch: string): Promise<string> {
 	const prNumber = localBranch.replace(/^pr-/, "");
 	const segment = `${prNumber}-${hashPath(primaryRoot)}`;
-	return fs.realpath(path.join(home, ".omp", "wt", segment));
+	return fs.realpath(path.join(getWorktreesDir(), segment));
 }
 
 describe("parsePrUnifiedDiff", () => {
@@ -309,7 +327,10 @@ describe("github tool", () => {
 		});
 
 		const tool = new GithubTool(createSession());
-		const result = await tool.execute("repo-view", { op: "repo_view", repo: "cli/cli" });
+		const result = await tool.execute("repo-view", {
+			op: "repo_view",
+			repo: "cli/cli",
+		});
 		const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 
 		expect(text).toContain("# cli/cli");
@@ -587,9 +608,13 @@ describe("github tool", () => {
 	it("search_code: rejects since/until since GitHub code search has no date qualifier", async () => {
 		const spy = vi.spyOn(git.github, "json").mockResolvedValue({ items: [] });
 		const tool = new GithubTool(createSession());
-		await expect(tool.execute("search-code", { op: "search_code", query: "foo", since: "3d" })).rejects.toThrow(
-			/search_code does not support since\/until/,
-		);
+		await expect(
+			tool.execute("search-code", {
+				op: "search_code",
+				query: "foo",
+				since: "3d",
+			}),
+		).rejects.toThrow(/search_code does not support since\/until/);
 		expect(spy).not.toHaveBeenCalled();
 	});
 
@@ -601,7 +626,12 @@ describe("github tool", () => {
 					repository: { full_name: "owner/repo" },
 					sha: "abcdef1234567890",
 					html_url: "https://github.com/owner/repo/blob/abcdef1234567890/src/lib.ts",
-					text_matches: [{ fragment: "function findThing(): void {\n  ...\n}", property: "content" }],
+					text_matches: [
+						{
+							fragment: "function findThing(): void {\n  ...\n}",
+							property: "content",
+						},
+					],
 				},
 			],
 		});
@@ -639,7 +669,11 @@ describe("github tool", () => {
 					author: { login: "octocat" },
 					commit: {
 						message: "Fix flaky test\n\nMore detail in the body.",
-						author: { name: "Mona Lisa", email: "mona@example.com", date: "2026-04-01T12:00:00Z" },
+						author: {
+							name: "Mona Lisa",
+							email: "mona@example.com",
+							date: "2026-04-01T12:00:00Z",
+						},
 					},
 					repository: { full_name: "owner/repo" },
 					html_url: "https://github.com/owner/repo/commit/0123456789abcdef",
@@ -814,10 +848,13 @@ describe("github tool", () => {
 				});
 
 			const tool = new GithubTool(createSession(fixture.repoRoot));
-			const result = await tool.execute("pr-checkout", { op: "pr_checkout", pr: "123" });
+			const result = await tool.execute("pr-checkout", {
+				op: "pr_checkout",
+				pr: "123",
+			});
 			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 			const primaryRoot = (await git.repo.primaryRoot(fixture.repoRoot)) ?? fixture.repoRoot;
-			const worktreePath = await expectedWorktreePath(tempHome.home, primaryRoot, "pr-123");
+			const worktreePath = await expectedWorktreePath(primaryRoot, "pr-123");
 
 			expect(text).toContain("Checked Out Pull Request #123");
 			expect(text).toContain(`Worktree: ${worktreePath}`);
@@ -953,11 +990,14 @@ exec ${JSON.stringify(realGit)} "$@"
 				});
 
 			const tool = new GithubTool(createSession(fixture.repoRoot));
-			const result = await tool.execute("pr-checkout", { op: "pr_checkout", pr: ["100", "200"] });
+			const result = await tool.execute("pr-checkout", {
+				op: "pr_checkout",
+				pr: ["100", "200"],
+			});
 			const text = result.content[0]?.type === "text" ? result.content[0].text : "";
 			const primaryRoot = (await git.repo.primaryRoot(fixture.repoRoot)) ?? fixture.repoRoot;
-			const wt100 = await expectedWorktreePath(tempHome.home, primaryRoot, "pr-100");
-			const wt200 = await expectedWorktreePath(tempHome.home, primaryRoot, "pr-200");
+			const wt100 = await expectedWorktreePath(primaryRoot, "pr-100");
+			const wt200 = await expectedWorktreePath(primaryRoot, "pr-200");
 
 			expect(text).toContain("# 2 Pull Request Worktrees");
 			expect(text).toContain("Checked Out Pull Request #100");
