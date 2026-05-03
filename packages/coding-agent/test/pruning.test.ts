@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ToolResultMessage } from "@oh-my-pi/pi-ai";
+import { estimateTokens } from "../src/session/compaction/compaction";
 import { DEFAULT_PRUNE_CONFIG, pruneToolOutputs } from "../src/session/compaction/pruning";
 
 type ToolResultEntry = {
@@ -31,10 +32,11 @@ function createToolResultEntry(id: string, toolName: string, text: string, times
 
 describe("DEFAULT_PRUNE_CONFIG", () => {
 	it("allows read tool outputs to be pruned while keeping skill outputs protected", () => {
-		const largeOutput = "x".repeat(220_000);
+		const largeOutput = Array.from({ length: 14_000 }, (_, i) => `token${i}`).join(" ");
 		const readEntry = createToolResultEntry("read-entry", "read", largeOutput, 1);
 		const skillEntry = createToolResultEntry("skill-entry", "skill", largeOutput, 2);
 		const entries = [readEntry, skillEntry];
+		const readTokens = estimateTokens(readEntry.message);
 
 		const result = pruneToolOutputs(entries as Parameters<typeof pruneToolOutputs>[0], DEFAULT_PRUNE_CONFIG);
 		const prunedReadMessage = readEntry.message as ToolResultMessage;
@@ -42,7 +44,7 @@ describe("DEFAULT_PRUNE_CONFIG", () => {
 
 		expect(result.prunedCount).toBe(1);
 		expect(result.tokensSaved).toBeGreaterThan(0);
-		expect(prunedReadMessage.content).toEqual([{ type: "text", text: `[Output truncated - 55000 tokens]` }]);
+		expect(prunedReadMessage.content).toEqual([{ type: "text", text: `[Output truncated - ${readTokens} tokens]` }]);
 		expect(protectedSkillMessage.content).toEqual([{ type: "text", text: largeOutput }]);
 	});
 });

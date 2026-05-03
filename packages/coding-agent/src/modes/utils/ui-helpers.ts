@@ -15,6 +15,7 @@ import {
 	readArgsHaveTarget,
 	readArgsTargetInternalUrl,
 } from "../../modes/components/read-tool-group";
+import { SkillMessageComponent } from "../../modes/components/skill-message";
 import { ToolExecutionComponent } from "../../modes/components/tool-execution";
 import { UserMessageComponent } from "../../modes/components/user-message";
 import { theme } from "../../modes/theme/theme";
@@ -25,6 +26,8 @@ import {
 	isSilentAbort,
 	MULTI_BLOCK_COMMAND_MESSAGE_TYPE,
 	MULTI_BLOCK_TEXT_MESSAGE_TYPE,
+	SKILL_PROMPT_MESSAGE_TYPE,
+	type SkillPromptDetails,
 } from "../../session/messages";
 import type { SessionContext } from "../../session/session-manager";
 import { formatBytes, formatDuration } from "../../tools/render-utils";
