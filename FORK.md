@@ -37,7 +37,7 @@ This fork adds the following feature areas on top of upstream:
 - Codex OAuth account stickiness per session / top-level agent
 - Fork-local Codex account selection: keep reusing a still-usable sticky pin to avoid cache churn; when a new pin is needed, prefer Spark/Pro accounts first, then choose the non-exhausted account whose long window renews soonest; fail fast if Codex ranking data is missing so regressions surface immediately.
 - Codex affinity and cache-observability logging
-- Fork-local assistant token line in interactive mode: when `display.showTokenUsage` is enabled, assistant messages show dim input/output counts, a `\uf49b` cache segment with explicit cached-token count including `0` and hit/miss tinting, plus a trailing `` elapsed segment derived from assistant-message timestamps in compact `d/h/m/s` form
+- Fork-local assistant token line in interactive mode: when `display.showTokenUsage` is enabled, assistant messages show dim input/output counts, then a `\uf49b` cache segment with explicit cached-token count including `0` and hit/miss tinting, then a trailing `` elapsed segment derived from assistant-message timestamps in compact `d/h/m/s` form; zero-cache responses tint both cache and elapsed segments as misses so the line stays visually consistent
 - Native shell interpolation in rendered command and skill bodies
 
 ### Supporting platform and tooling changes
