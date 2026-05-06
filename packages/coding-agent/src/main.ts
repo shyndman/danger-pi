@@ -24,6 +24,7 @@ import type { Args } from "./cli/args";
 import { processFileArguments } from "./cli/file-processor";
 import { buildInitialMessage } from "./cli/initial-message";
 import { runListModelsCommand } from "./cli/list-models";
+import { runListRecentCommand } from "./cli/list-recent";
 import { selectSession } from "./cli/session-picker";
 import { findConfigFile } from "./config";
 import { ModelRegistry, ModelsConfigFile } from "./config/model-registry";
@@ -702,6 +703,11 @@ export async function runRootCommand(
 
 	if (parsedArgs.version) {
 		process.stdout.write(`${VERSION}\n`);
+		process.exit(0);
+	}
+
+	if (parsedArgs.listRecent) {
+		await runListRecentCommand();
 		process.exit(0);
 	}
 
