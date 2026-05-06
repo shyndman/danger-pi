@@ -66,6 +66,7 @@ export interface Args {
 	noSkills?: boolean;
 	skills?: string[];
 	noRules?: boolean;
+	listRecent?: number;
 	noTitle?: boolean;
 	autoApprove?: boolean;
 	approvalMode?: "always-ask" | "write" | "yolo";

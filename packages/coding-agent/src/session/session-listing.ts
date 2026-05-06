@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Message, TextContent } from "@oh-my-pi/pi-ai";
-import { getAgentDir as getDefaultAgentDir, logger, parseJsonlLenient, toError } from "@oh-my-pi/pi-utils";
+import { getSessionsDir, logger, parseJsonlLenient, toError } from "@oh-my-pi/pi-utils";
 import { computeDefaultSessionDir } from "./session-paths";
 import { FileSessionStorage, type SessionStorage } from "./session-storage";
 
@@ -27,6 +27,8 @@ export interface SessionInfo {
 	/** Working directory where the session was started. Empty string for old sessions. */
 	cwd: string;
 	title?: string;
+	/** Stored session header title, if one exists. */
+	headerTitle?: string;
 	/** Path to the parent session (if this session was forked). */
 	parentSessionPath?: string;
 	created: Date;
@@ -74,7 +76,7 @@ function sanitizeSessionName(value: string | undefined): string | undefined {
 }
 
 /** Format a time difference as a human-readable string */
-function formatTimeAgo(date: Date): string {
+export function formatTimeAgo(date: Date): string {
 	const now = Date.now();
 	const diffMs = now - date.getTime();
 	const diffMins = Math.floor(diffMs / 60000);
@@ -402,6 +404,7 @@ async function scanSessionFile(
 			id: header.id,
 			cwd: header.cwd ?? "",
 			title: header.title ?? shortSummary,
+			headerTitle: header.title,
 			parentSessionPath: header.parentSession,
 			created: new Date(header.timestamp ?? ""),
 			modified: mtime,
@@ -556,7 +559,7 @@ export function listSessionsReadOnly(sessionDir: string, storage: SessionStorage
 
 /** List all sessions across all project directories (newest first). */
 export async function listAllSessions(storage: SessionStorage = new FileSessionStorage()): Promise<SessionInfo[]> {
-	const sessionsRoot = path.join(getDefaultAgentDir(), "sessions");
+	const sessionsRoot = getSessionsDir();
 	try {
 		const files = await Array.fromAsync(new Bun.Glob("*/*.jsonl").scan(sessionsRoot), name =>
 			path.join(sessionsRoot, name),

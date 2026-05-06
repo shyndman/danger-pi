@@ -85,6 +85,17 @@ const setResume: OptionalSetter = (result, value) => {
 	result.resume = value !== undefined ? value : true;
 };
 
+export const DEFAULT_RECENT_SESSION_LIMIT = 10;
+
+const setListRecent: OptionalSetter = (result, value) => {
+	if (value === undefined) {
+		result.listRecent = DEFAULT_RECENT_SESSION_LIMIT;
+		return;
+	}
+	const count = Number(value);
+	result.listRecent = Number.isInteger(count) && count > 0 ? count : DEFAULT_RECENT_SESSION_LIMIT;
+};
+
 /**
  * Setters for flags with string values. Most built-ins consume the next argv
  * token even when it starts with `-`; flags listed in
@@ -226,6 +237,7 @@ export const OPTIONAL_FLAGS: Record<string, OptionalFlagConfig> = {
 	"--resume": { set: setResume, rejectEmpty: true },
 	"-r": { set: setResume, rejectEmpty: true },
 	"--session": { set: setResume, rejectEmpty: true },
+	"--list-recent": { set: setListRecent },
 };
 
 /**

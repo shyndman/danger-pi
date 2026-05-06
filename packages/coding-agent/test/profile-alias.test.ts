@@ -67,6 +67,7 @@ describe("profile alias installer", () => {
 			shellPath: "/bin/zsh",
 			platform: "darwin",
 			homeDir: "/Users/me",
+			env: {},
 			command: {
 				display: "bun /repo/packages/coding-agent/src/cli.ts",
 				posix: "bun '/repo/packages/coding-agent/src/cli.ts'",
@@ -260,6 +261,7 @@ describe("profile alias installer", () => {
 			shellPath: "/bin/zsh",
 			platform: "darwin",
 			homeDir: "/home/me",
+			env: {},
 			readFile: async filePath => files.get(filePath) ?? "",
 			writeFile: async (filePath, content) => {
 				files.set(filePath, content);
@@ -289,6 +291,7 @@ describe("profile alias installer", () => {
 				shellPath: "/bin/zsh",
 				platform: "darwin",
 				homeDir: "/home/me",
+				env: {},
 				readFile: async filePath => files.get(filePath) ?? "",
 				writeFile: async (filePath, content) => {
 					wrote = true;

@@ -150,6 +150,9 @@ export default class Index extends Command {
 		export: Flags.string({
 			description: "Export session file to HTML and exit",
 		}),
+		"list-recent": Flags.string({
+			description: "List the N most recent sessions across all directories and exit (default 10)",
+		}),
 		"no-title": Flags.boolean({
 			description: "Disable title auto-generation",
 		}),
@@ -184,6 +187,7 @@ export default class Index extends Command {
 		`# Non-interactive mode (process and exit)\n  ${APP_NAME} -p "List all .ts files in src/"`,
 		`# Continue previous session\n  ${APP_NAME} --continue "What did we discuss?"`,
 		`# Create a shell shortcut for a work profile\n  ${APP_NAME} --profile work --alias omp-work`,
+		`# List recent sessions across all directories\n  ${APP_NAME} --list-recent 25`,
 		`# Use different model (fuzzy matching)\n  ${APP_NAME} --model opus "Help me refactor this code"`,
 		`# Limit model cycling to specific models\n  ${APP_NAME} --models claude-sonnet,claude-haiku,gpt-4o`,
 		`# Export a session file to HTML\n  ${APP_NAME} --export ~/.omp/agent/sessions/--path--/session.jsonl`,

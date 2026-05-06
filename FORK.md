@@ -32,6 +32,9 @@ This fork adds the following feature areas on top of upstream:
 ### Runtime and session behavior
 - Native `.omp` live reload for commands and skills
 - Native `.cmd.yaml` prompt-chain command files in `.omp/commands` and `~/.omp/agent/commands`: `foo.cmd.yaml` registers `/foo`, same-directory `.md` siblings win on name collisions, and invalid YAML/schema files surface as non-fatal interactive warning blocks during startup and reload
+- Native and standalone fallback MCP config files accept JSONC syntax in the existing `mcp.json` / `.mcp.json` paths while OMP continues to write normalized strict JSON
+- Fork-local pager mode: assistant-emitted `<pager-index title="...">` workflows can be advanced with `/pager:next` and exited with `/pager:exit`; transcript history keeps visible `Paging Next` / `Paging Exit` custom messages, and the hook-status line reconstructs `[0/n] workflow: Index` or `[i/n] page title` from the active branch plus in-flight pager control messages so the first page does not regress to `Index`
+- Fork-local `--list-recent [count]` CLI flag: lists the most recently modified sessions across all project scopes (default 10; pass any positive integer to change the count, invalid values silently fall back to 10) with title, directory name, session id, and relative last-used time; rows use a stable title-hash color from the fork-local fixed palette
 - `/reload` support for refreshing runtime state
 - Codex OAuth account stickiness per session / top-level agent
 - Fork-local Codex account selection: keep reusing a still-usable sticky pin to avoid cache churn; when a new pin is needed, prefer Spark/Pro accounts first, then choose the non-exhausted account whose long window renews soonest; fail fast if Codex ranking data is missing so regressions surface immediately.

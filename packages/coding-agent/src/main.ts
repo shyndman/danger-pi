@@ -26,6 +26,7 @@ import { type Args, reportUnrecognizedFlags } from "./cli/args";
 import { applyExtensionFlags, type ExtensionFlagSink } from "./cli/extension-flags";
 import { processFileArguments } from "./cli/file-processor";
 import { buildInitialMessage } from "./cli/initial-message";
+import { runListRecentCommand } from "./cli/list-recent";
 import { selectSession } from "./cli/session-picker";
 import { applyStartupCwd } from "./cli/startup-cwd";
 import { findConfigFile } from "./config";
@@ -1060,6 +1061,11 @@ export async function runRootCommand(
 
 	if (parsedArgs.version) {
 		writeStartupNotice(parsedArgs, `${VERSION}\n`);
+		process.exit(0);
+	}
+
+	if (parsedArgs.listRecent !== undefined) {
+		await runListRecentCommand(parsedArgs.listRecent);
 		process.exit(0);
 	}
 
