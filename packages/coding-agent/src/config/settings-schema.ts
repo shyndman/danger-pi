@@ -2554,6 +2554,10 @@ export const SETTINGS_SCHEMA = {
 			],
 		},
 	},
+	"providers.imageOpenRouterModel": {
+		type: "string",
+		default: undefined,
+	},
 
 	"providers.kimiApiFormat": {
 		type: "enum",

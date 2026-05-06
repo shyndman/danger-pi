@@ -47,6 +47,6 @@ This fork adds the following feature areas on top of upstream:
 - Session token tracking and related session-link fixes
 - Clipboard and native integration improvements
 - Nano Banana 2 image-generation pipeline upgrade
-- OpenRouter image-generation requests now send `modalities` and forward `image_config` (`aspect_ratio`, `image_size`) when provided
+- OpenRouter image generation defaults to `openai/gpt-5.4-image-2` and can be overridden with `providers.imageOpenRouterModel` when `providers.image=openrouter`; requests always send `modalities: ["image", "text"]` and forward `image_config` (`aspect_ratio`, `image_size`) when provided
 - Fork-local bundled Danger Pi extensions now live in `packages/coding-agent/src/danger-pi/extensions/index.ts` and are wired directly into `sdk.ts` inline extensions, separate from filesystem-discovered user/project extensions
 - Added fork-local `meta` bundled extension slash command for UI/autocomplete experimentation with `foo`, `bar`, and `baz` argument suggestions
