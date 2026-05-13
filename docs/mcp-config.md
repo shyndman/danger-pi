@@ -24,6 +24,8 @@ OMP also accepts fallback standalone files in the project root:
 
 Use `.omp/mcp.json` or `~/.omp/agent/mcp.json` when you want OMP to own the configuration. Use root `mcp.json` / `.mcp.json` only when you want a portable fallback file that other MCP clients may also read.
 
+OMP-read MCP files keep the `.json` filename but accept JSONC syntax, including comments and trailing commas. OMP still writes normalized strict JSON when `/mcp add`, `/mcp enable`, `/mcp disable`, `/mcp reauth`, or other config-writing flows update a file, so comments are not preserved after an OMP write.
+
 ## Add a schema reference
 
 Add this line at the top of the file for editor autocomplete and validation:

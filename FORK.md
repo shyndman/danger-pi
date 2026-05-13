@@ -32,6 +32,7 @@ This fork adds the following feature areas on top of upstream:
 ### Runtime and session behavior
 - Native `.omp` live reload for commands and skills
 - Native `.cmd.yaml` prompt-chain command files in `.omp/commands` and `~/.omp/agent/commands`: `foo.cmd.yaml` registers `/foo`, same-directory `.md` siblings win on name collisions, and invalid YAML/schema files surface as non-fatal interactive warning blocks during startup and reload
+- Native and standalone fallback MCP config files accept JSONC syntax in the existing `mcp.json` / `.mcp.json` paths while OMP continues to write normalized strict JSON
 - Fork-local `--list-recent` CLI flag: lists the 10 most recently modified sessions across all project scopes with title, directory name, session id, and relative last-used time; rows use the stored session-title accent color when available
 - `/reload` support for refreshing runtime state
 - Fork-local bundled `/title` extension for manually setting the current session title from interactive mode: `/title <name>` applies immediately, bare `/title` opens the editor, and extension slash commands execute locally without optimistic prompt/loader UI
