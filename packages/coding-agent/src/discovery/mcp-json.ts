@@ -7,11 +7,12 @@
  * Priority: 5 (low, as this is a fallback after tool-specific providers)
  */
 import * as path from "node:path";
-import { logger, tryParseJson } from "@oh-my-pi/pi-utils";
+import { logger } from "@oh-my-pi/pi-utils";
 import { registerProvider } from "../capability";
 import { readFile } from "../capability/fs";
 import { type MCPServer, mcpCapability } from "../capability/mcp";
 import type { LoadContext, LoadResult, SourceMeta } from "../capability/types";
+import { tryParseMCPConfigContent } from "../mcp/config-parser";
 import { createSourceMeta, expandEnvVarsDeep } from "./helpers";
 
 const PROVIDER_ID = "mcp-json";
@@ -131,7 +132,7 @@ async function loadMCPJsonFile(
 		return { items, warnings };
 	}
 
-	const config = tryParseJson<MCPConfigFile>(content);
+	const config = tryParseMCPConfigContent(content) as MCPConfigFile | null;
 	if (!config) {
 		warnings.push(`Failed to parse JSON in ${path}`);
 		return { items, warnings };

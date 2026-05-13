@@ -125,4 +125,53 @@ describe("standalone mcp.json oauth env expansion", () => {
 		});
 		expect(server?.auth).toBeUndefined();
 	});
+
+	test("accepts JSONC syntax in standalone mcp.json", async () => {
+		await fs.writeFile(
+			path.join(tempDir, "mcp.json"),
+			`{
+				// Standalone fallback configs keep the .json filename but accept JSONC syntax.
+				"mcpServers": {
+					"commented": {
+						"command": "echo",
+						"args": ["${envPlaceholder("PI_MCP_ENV")}"],
+					},
+				},
+			}`,
+		);
+
+		const [server] = await loadStandaloneMcpConfig(tempDir);
+		expect(server).toBeDefined();
+		expect(server?.name).toBe("commented");
+		expect(server?.command).toBe("echo");
+		expect(server?.args).toEqual(["env-value"]);
+	});
+
+	test("accepts JSONC syntax in native project mcp.json", async () => {
+		const ompDir = path.join(tempDir, ".omp");
+		await fs.mkdir(ompDir, { recursive: true });
+		await fs.writeFile(
+			path.join(ompDir, "mcp.json"),
+			`{
+				"mcpServers": {
+					"native-commented": {
+						"command": "echo",
+						"args": ["native"],
+					},
+				},
+				// Native OMP config also accepts JSONC syntax in the canonical .json path.
+			}`,
+		);
+
+		const result = await loadCapability<MCPServer>(mcpCapability.id, {
+			cwd: tempDir,
+			providers: ["native"],
+		});
+
+		const [server] = result.items;
+		expect(server).toBeDefined();
+		expect(server?.name).toBe("native-commented");
+		expect(server?.command).toBe("echo");
+		expect(server?.args).toEqual(["native"]);
+	});
 });

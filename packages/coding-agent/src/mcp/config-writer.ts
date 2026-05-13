@@ -9,6 +9,7 @@ import { isEnoent } from "@oh-my-pi/pi-utils";
 import { invalidate as invalidateFsCache } from "../capability/fs";
 
 import { validateServerConfig } from "./config";
+import { parseMCPConfigContent } from "./config-parser";
 import { MCP_CONFIG_SCHEMA_URL, type MCPConfigFile, type MCPServerConfig } from "./types";
 
 function withSchema(config: MCPConfigFile): MCPConfigFile {
@@ -25,7 +26,7 @@ function withSchema(config: MCPConfigFile): MCPConfigFile {
 export async function readMCPConfigFile(filePath: string): Promise<MCPConfigFile> {
 	try {
 		const content = await fs.promises.readFile(filePath, "utf-8");
-		const parsed = JSON.parse(content) as MCPConfigFile;
+		const parsed = parseMCPConfigContent(content);
 		return parsed;
 	} catch (error) {
 		if (isEnoent(error)) {

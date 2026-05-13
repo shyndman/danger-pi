@@ -24,6 +24,7 @@ import { type SystemPrompt, systemPromptCapability } from "../capability/system-
 import { type CustomTool, toolCapability } from "../capability/tool";
 import type { LoadContext, LoadResult } from "../capability/types";
 import { loadCommandChainFilesFromDir } from "../danger-pi/command-chain-files/load";
+import { tryParseMCPConfigContent } from "../mcp/config-parser";
 import { expandTilde } from "../tools/path-utils";
 import {
 	buildRuleFromMarkdown,
@@ -105,12 +106,12 @@ async function loadMCPServers(ctx: LoadContext): Promise<LoadResult<MCPServer>> 
 
 	const parseMcpServers = (content: string, path: string, level: "user" | "project"): MCPServer[] => {
 		const result: MCPServer[] = [];
-		const data = tryParseJson<{ mcpServers?: Record<string, unknown> }>(content);
+		const data = tryParseMCPConfigContent(content);
 		if (!data?.mcpServers) return result;
 
 		const expanded = expandEnvVarsDeep(data.mcpServers);
 		for (const [serverName, config] of Object.entries(expanded)) {
-			const serverConfig = config as Record<string, unknown>;
+			const serverConfig = config as unknown as Record<string, unknown>;
 
 			// Validate enabled: coerce string "true"/"false", warn on other types
 			let enabled: boolean | undefined;
