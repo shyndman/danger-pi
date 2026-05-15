@@ -6,7 +6,6 @@ import { Snowflake, setProjectDir } from "@oh-my-pi/pi-utils";
 import { $ } from "bun";
 import type { SettingPath, SettingValue } from "../config/settings";
 import { settings } from "../config/settings";
-import { dangerPiBundledBuiltinSlashCommands } from "../danger-pi/slash-commands";
 import {
 	clearPluginRootsAndCaches,
 	resolveActiveProjectRegistryPath,
@@ -1667,10 +1666,7 @@ const CORE_BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
 	},
 ];
 
-const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = [
-	...CORE_BUILTIN_SLASH_COMMAND_REGISTRY,
-	...dangerPiBundledBuiltinSlashCommands,
-];
+const BUILTIN_SLASH_COMMAND_REGISTRY: ReadonlyArray<SlashCommandSpec> = CORE_BUILTIN_SLASH_COMMAND_REGISTRY;
 
 const BUILTIN_SLASH_COMMAND_LOOKUP = new Map<string, SlashCommandSpec>();
 for (const command of BUILTIN_SLASH_COMMAND_REGISTRY) {
