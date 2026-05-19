@@ -89,7 +89,11 @@ describe("AuthStorage config-override apiKey", () => {
 			authStorage.clearConfigApiKeys();
 
 			expect(await authStorage.getApiKey("anthropic")).toBe("oauth-anthropic");
-			expect(await authStorage.getApiKey("openai-codex")).toBe("oauth-codex");
+			const codexKey = await authStorage.getApiKey("openai-codex");
+			expect(codexKey ? JSON.parse(codexKey) : null).toMatchObject({
+				token: "oauth-codex",
+				refreshToken: "oauth-codex-refresh",
+			});
 		});
 	});
 

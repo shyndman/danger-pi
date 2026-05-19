@@ -7,7 +7,7 @@ import { type RequestBody, transformRequestBody } from "@oh-my-pi/pi-ai/provider
 import { CodexApiError, parseCodexError } from "@oh-my-pi/pi-ai/providers/openai-codex/response-handler";
 import { convertOpenAICodexResponsesTools } from "@oh-my-pi/pi-ai/providers/openai-codex-responses";
 import type { Tool } from "@oh-my-pi/pi-ai/types";
-import { OPENAI_HEADER_VALUES } from "@oh-my-pi/pi-catalog/wire/codex";
+import { getCodexAccountId, OPENAI_HEADER_VALUES, parseCodexCredential } from "@oh-my-pi/pi-catalog/wire/codex";
 import { createCodexModel } from "./helpers";
 
 const DEFAULT_PROMPT_PREFIX =
@@ -47,6 +47,19 @@ describe("openai-codex oauth", () => {
 });
 
 describe("openai-codex tool schemas", () => {
+	it("accepts structured codex credentials without re-decoding accountId from the token", () => {
+		const structuredCredential = JSON.stringify({
+			token: "opaque-access-token",
+			accountId: "acct-codex-1",
+		});
+
+		expect(parseCodexCredential(structuredCredential)).toEqual({
+			accessToken: "opaque-access-token",
+			accountId: "acct-codex-1",
+		});
+		expect(getCodexAccountId(structuredCredential)).toBe("acct-codex-1");
+	});
+
 	it("adds empty properties to no-argument object parameter schemas", () => {
 		const tools: Tool[] = [
 			{

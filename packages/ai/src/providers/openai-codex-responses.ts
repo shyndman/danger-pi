@@ -7,6 +7,7 @@ import {
 	getCodexAccountId,
 	OPENAI_HEADER_VALUES,
 	OPENAI_HEADERS,
+	parseCodexCredential,
 } from "@oh-my-pi/pi-catalog/wire/codex";
 import {
 	$env,
@@ -64,6 +65,7 @@ import { createRequestDebugSession, isRequestDebugEnabled, type RequestDebugResp
 import { adaptSchemaForStrict, NO_STRICT, sanitizeSchemaForOpenAIResponses, toolWireSchema } from "../utils/schema";
 import { notifyRawSseEvent } from "../utils/sse-debug";
 import { compactGrammarDefinition } from "./grammar";
+
 import {
 	type CodexReasoningContext,
 	type CodexRequestOptions,
@@ -1192,12 +1194,17 @@ async function buildCodexRequestContext(
 	options: OpenAICodexResponsesOptions | undefined,
 	output: AssistantMessage,
 ): Promise<CodexRequestContext> {
-	const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+	const rawApiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+	if (!rawApiKey) {
+		throw new Error(`No API key for provider: ${model.provider}`);
+	}
+	const parsedCredential = parseCodexCredential(rawApiKey);
+	const apiKey = parsedCredential.accessToken;
 	if (!apiKey) {
 		throw new AIError.MissingApiKeyError(model.provider);
 	}
 
-	const accountId = getCodexAccountId(apiKey);
+	const accountId = parsedCredential.accountId ?? getCodexAccountId(apiKey);
 	const baseUrl = model.baseUrl || CODEX_BASE_URL;
 	const url = resolveCodexResponsesUrl(baseUrl);
 	const promptCacheKey = normalizeOpenAIPromptCacheKey(options?.promptCacheKey ?? options?.sessionId);
@@ -2545,9 +2552,12 @@ export async function prewarmOpenAICodexResponses(
 		"apiKey" | "headers" | "sessionId" | "signal" | "preferWebsockets" | "providerSessionState" | "responsesLite"
 	>,
 ): Promise<void> {
-	const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+	const rawApiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+	if (!rawApiKey) return;
+	const parsedCredential = parseCodexCredential(rawApiKey);
+	const apiKey = parsedCredential.accessToken;
 	if (!apiKey) return;
-	const accountId = getCodexAccountId(apiKey);
+	const accountId = parsedCredential.accountId ?? getCodexAccountId(apiKey);
 	const baseUrl = model.baseUrl || CODEX_BASE_URL;
 	const url = resolveCodexResponsesUrl(baseUrl);
 	const transportSessionId = normalizeOpenAIPromptCacheKey(options?.sessionId);

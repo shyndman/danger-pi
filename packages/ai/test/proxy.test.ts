@@ -3,6 +3,7 @@ import * as net from "node:net";
 import * as AIError from "@oh-my-pi/pi-ai/error";
 import type { FetchImpl } from "@oh-my-pi/pi-ai/types";
 import {
+	__resetProxyCache,
 	connectProxiedSocket,
 	getProxyForProvider,
 	isLocalOrMetadataHost,
@@ -75,6 +76,7 @@ beforeEach(() => {
 		saved[key] = Bun.env[key];
 		delete Bun.env[key];
 	}
+	__resetProxyCache();
 });
 
 afterEach(() => {
@@ -87,6 +89,7 @@ afterEach(() => {
 		const value = saved[key];
 		if (value !== undefined) Bun.env[key] = value;
 	}
+	__resetProxyCache();
 });
 
 describe("getProxyForProvider", () => {

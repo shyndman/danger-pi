@@ -85,6 +85,33 @@ describe("Google Gemini CLI alignment", () => {
 		expect(payload.accountId).toBe("acct-1");
 	});
 
+	it("encodes enriched Codex OAuth JSON while preserving token + accountId", async () => {
+		const expiresAt = Date.now() + 60 * 60 * 1000;
+		const result = await getOAuthApiKey("openai-codex", {
+			"openai-codex": {
+				access: "codex-access-token",
+				refresh: "codex-refresh-token",
+				expires: expiresAt,
+				email: "dev@example.com",
+				accountId: "acct-codex-1",
+			},
+		});
+
+		expect(result).not.toBeNull();
+		const payload = JSON.parse(result!.apiKey) as {
+			token?: string;
+			refreshToken?: string;
+			expiresAt?: number;
+			email?: string;
+			accountId?: string;
+		};
+		expect(payload.token).toBe("codex-access-token");
+		expect(payload.refreshToken).toBe("codex-refresh-token");
+		expect(payload.expiresAt).toBe(expiresAt);
+		expect(payload.email).toBe("dev@example.com");
+		expect(payload.accountId).toBe("acct-codex-1");
+	});
+
 	it("accepts legacy, alias, and enriched OAuth JSON payloads", () => {
 		const legacy = parseGeminiCliCredentials(JSON.stringify({ token: "legacy-token", projectId: "proj-legacy" }));
 		expect(legacy).toEqual({

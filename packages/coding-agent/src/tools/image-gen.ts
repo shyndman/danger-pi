@@ -7,6 +7,7 @@ import {
 	getCodexAccountId,
 	OPENAI_HEADER_VALUES,
 	OPENAI_HEADERS,
+	parseCodexCredential,
 	URL_PATHS,
 } from "@oh-my-pi/pi-catalog/wire/codex";
 import { getAntigravityUserAgent } from "@oh-my-pi/pi-catalog/wire/gemini-headers";
@@ -942,10 +943,15 @@ function getOpenAIResponsesUrl(model: Model): string {
 function buildOpenAIImageHeaders(model: Model, apiKey: string, sessionId: string | undefined): Headers {
 	const headers = new Headers(model.headers ?? {});
 	headers.set("Content-Type", "application/json");
-	headers.set("Authorization", `Bearer ${apiKey}`);
+	const codexCredential =
+		model.api === "openai-codex-responses" || model.provider === "openai-codex" ? parseCodexCredential(apiKey) : null;
+	headers.set("Authorization", `Bearer ${codexCredential?.accessToken ?? apiKey}`);
 
 	if (model.api === "openai-codex-responses" || model.provider === "openai-codex") {
-		const accountId = getCodexAccountId(apiKey);
+		const accountId = codexCredential?.accountId ?? getCodexAccountId(apiKey);
+		if (!accountId) {
+			throw new Error("Failed to extract accountId from OpenAI Codex token");
+		}
 		headers.delete("x-api-key");
 		if (accountId) {
 			headers.set(OPENAI_HEADERS.ACCOUNT_ID, accountId);
