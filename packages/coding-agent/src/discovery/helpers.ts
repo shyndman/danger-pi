@@ -299,14 +299,7 @@ async function globIf(
 	recursive: boolean = true,
 ): Promise<Array<{ path: string }>> {
 	try {
-		const result = await glob({
-			pattern,
-			path: dir,
-			gitignore: true,
-			hidden: false,
-			fileType,
-			recursive,
-		});
+		const result = await glob({ pattern, path: dir, gitignore: true, hidden: false, fileType, recursive });
 		return result.matches;
 	} catch {
 		return [];

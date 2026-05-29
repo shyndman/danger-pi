@@ -145,7 +145,8 @@ export class WelcomeComponent implements Component {
 	#animStart: number | null = null;
 	#animTimer: Timer | null = null;
 	#selectedTip: string | undefined;
-	// Render cache: the welcome box is the first transcript-area component, so
+
+  // Render cache: the welcome box is the first transcript-area component, so
 	// returning a stable array reference keeps the whole frame prefix stable.
 	// Bypassed while the intro animation runs (every frame differs).
 	#cachedWidth = -1;
@@ -175,9 +176,7 @@ export class WelcomeComponent implements Component {
 	}
 
 	/**
-	 * Play a one-shot intro that sweeps the gradient through every phase
-	 * before settling on the resting frame. Safe to call multiple times —
-	 * subsequent calls reset and replay.
+	 * Request a render for the static welcome screen.
 	 */
 	playIntro(requestRender: () => void): void {
 		this.#stopAnimation();
@@ -219,7 +218,7 @@ export class WelcomeComponent implements Component {
 	}
 
 	render(termWidth: number): readonly string[] {
-		const animating = this.#animStart != null;
+		const animating = this.#animStart !== undefined;
 		if (!animating && this.#cachedLines && this.#cachedWidth === termWidth) {
 			return this.#cachedLines;
 		}
@@ -526,12 +525,12 @@ export class WelcomeComponent implements Component {
 
 // biome-ignore format: preserve ASCII art layout
 export const PI_LOGO = [
-  "     ～～～～～    ",
-  "  ╭             ╮",
-  "  |             |",
-  "      ◎     ◎    ",
-  "    ¬    △    ⌐  ",
-  "       ↕↕↕↕↕      ",
+  "    ～～～～～      ",
+  "╭             ╮",
+  "|             |",
+  "    ◎     ◎    ",
+  "  ¬    △    ⌐  ",
+  "     ↕↕↕↕↕      ",
 ];
 
 /** Multi-stop palette for the diagonal gradient. */
