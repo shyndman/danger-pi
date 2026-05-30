@@ -33,7 +33,7 @@ import {
 	waitForProjectLoaded,
 } from "./client";
 import { getLinterClient } from "./clients";
-import { getServersForFile, hasRootMarkerAncestor, type LspConfig, loadConfig } from "./config";
+import { getServersForFile, hasRootMarkerAncestor, type LspConfig, loadConfig, resolveCommand } from "./config";
 import {
 	applyTextEdits,
 	applyTextEditsToString,
@@ -644,6 +644,54 @@ async function resolveGoWorkspaceDiagnosticsCommand(cwd: string, signal?: AbortS
 	}
 }
 
+const PYTHON_WORKSPACE_RUNNER_PREFERENCES = [
+	{ serverName: "basedpyright", cliName: "basedpyright" },
+	{ serverName: "pyright", cliName: "pyright" },
+] as const;
+
+function resolveConfiguredPythonWorkspaceRunner(cwd: string): ProjectType | null {
+	const config = getConfig(cwd);
+
+	for (const { serverName, cliName } of PYTHON_WORKSPACE_RUNNER_PREFERENCES) {
+		const serverConfig = config.servers[serverName];
+		if (!serverConfig) {
+			continue;
+		}
+
+		const resolvedServerCommand = serverConfig.resolvedCommand ?? serverConfig.command;
+		const parsedServerCommand = path.parse(resolvedServerCommand);
+		if (parsedServerCommand.name === cliName) {
+			return {
+				type: "python",
+				command: [resolvedServerCommand],
+				description: `Python (${cliName})`,
+			};
+		}
+
+		if (parsedServerCommand.name === `${cliName}-langserver`) {
+			const siblingCli = path.join(parsedServerCommand.dir, `${cliName}${parsedServerCommand.ext}`);
+			if (fs.existsSync(siblingCli)) {
+				return {
+					type: "python",
+					command: [siblingCli],
+					description: `Python (${cliName})`,
+				};
+			}
+		}
+
+		const resolvedCli = resolveCommand(cliName, cwd);
+		if (resolvedCli) {
+			return {
+				type: "python",
+				command: [resolvedCli],
+				description: `Python (${cliName})`,
+			};
+		}
+	}
+
+	return null;
+}
+
 /** Detect project type from root markers */
 async function detectProjectType(cwd: string, signal?: AbortSignal): Promise<ProjectType> {
 	// Check for Rust (Cargo.toml)
@@ -672,7 +720,7 @@ async function detectProjectType(cwd: string, signal?: AbortSignal): Promise<Pro
 
 	// Check for Python (pyproject.toml or pyrightconfig.json)
 	if (fs.existsSync(path.join(cwd, "pyproject.toml")) || fs.existsSync(path.join(cwd, "pyrightconfig.json"))) {
-		return { type: "python", command: ["pyright"], description: "Python (pyright)" };
+		return { type: "python", description: "Python" };
 	}
 
 	return { type: "unknown", description: "Unknown project type" };
@@ -684,8 +732,19 @@ async function runWorkspaceDiagnostics(
 	signal?: AbortSignal,
 ): Promise<{ output: string; projectType: ProjectType }> {
 	throwIfAborted(signal);
-	const projectType = await detectProjectType(cwd, signal);
+	const detectedProjectType = await detectProjectType(cwd, signal);
+	const projectType =
+		detectedProjectType.type === "python"
+			? (resolveConfiguredPythonWorkspaceRunner(cwd) ?? detectedProjectType)
+			: detectedProjectType;
 	if (!projectType.command) {
+		if (projectType.type === "python") {
+			return {
+				output:
+					"Failed to resolve Python workspace diagnostics runner from configured LSP servers. Expected configured basedpyright or pyright.",
+				projectType,
+			};
+		}
 		return {
 			output: `Cannot detect project type. Supported: Rust (Cargo.toml), TypeScript (tsconfig.json), Go (go.work/go.mod), Python (pyproject.toml)`,
 			projectType,

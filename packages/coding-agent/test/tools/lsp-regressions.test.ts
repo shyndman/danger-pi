@@ -242,6 +242,59 @@ function textResult(result: AgentToolResult<LspToolDetails>): string {
 		.join("\n");
 }
 
+type SpawnOptions = Bun.SpawnOptions.SpawnOptions<
+	Bun.SpawnOptions.Writable,
+	Bun.SpawnOptions.Readable,
+	Bun.SpawnOptions.Readable
+>;
+
+type SpawnCall = {
+	cmd: string[];
+	options: SpawnOptions;
+};
+
+type LspExecuteResult = AgentToolResult<LspToolDetails>;
+
+function createTextStream(text: string): ReadableStream<Uint8Array> {
+	const body = new Response(text).body;
+	if (!body) {
+		throw new Error("Failed to create response stream.");
+	}
+	return body;
+}
+
+function createFakeProcess(stdout = "", stderr = "", exitCode = 0): Subprocess {
+	return {
+		pid: 12345,
+		stdout: createTextStream(stdout),
+		stderr: createTextStream(stderr),
+		exited: Promise.resolve(exitCode),
+	} as Subprocess;
+}
+
+function createSpawnMock(calls: SpawnCall[], stdout = "", stderr = "", exitCode = 0) {
+	function mockSpawn(options: SpawnOptions & { cmd: string[] }): Subprocess;
+	function mockSpawn(cmd: string[], options?: SpawnOptions): Subprocess;
+	function mockSpawn(first: string[] | (SpawnOptions & { cmd: string[] }), second?: SpawnOptions): Subprocess {
+		if (Array.isArray(first)) {
+			calls.push({ cmd: first, options: second ?? ({} as SpawnOptions) });
+		} else {
+			const { cmd, ...options } = first;
+			calls.push({ cmd, options });
+		}
+		return createFakeProcess(stdout, stderr, exitCode);
+	}
+
+	return mockSpawn;
+}
+
+function getTextOutput(result: LspExecuteResult): string {
+	return result.content
+		.filter(block => block.type === "text")
+		.map(block => block.text)
+		.join("\n");
+}
+
 describe("lsp regressions", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
@@ -771,6 +824,112 @@ describe("lsp regressions", () => {
 		} finally {
 			vi.restoreAllMocks();
 			await lspClient.shutdownAll();
+			tempDir.removeSync();
+		}
+	});
+
+	it("uses configured basedpyright for Python workspace diagnostics", async () => {
+		const tempDir = TempDir.createSync("@omp-lsp-python-workspace-basedpyright-");
+		const spawnCalls: SpawnCall[] = [];
+
+		vi.spyOn(Bun, "spawn").mockImplementation(createSpawnMock(spawnCalls));
+		vi.spyOn(piUtils, "$which").mockImplementation(() => null);
+
+		try {
+			const binDir = path.join(tempDir.path(), ".venv", "bin");
+			await fs.promises.mkdir(path.join(tempDir.path(), ".omp"), { recursive: true });
+			await fs.promises.mkdir(binDir, { recursive: true });
+			await Bun.write(path.join(tempDir.path(), "pyproject.toml"), '[project]\nname = "demo"\nversion = "0.1.0"\n');
+			await Bun.write(path.join(tempDir.path(), ".omp", "lsp.json"), '{"servers":{"pyright":{"disabled":true}}}\n');
+			await Bun.write(path.join(binDir, "basedpyright-langserver"), "");
+			await Bun.write(path.join(binDir, "basedpyright"), "");
+
+			const tool = new LspTool({ cwd: tempDir.path() } as ToolSession);
+			const result = await tool.execute("diag-python-workspace", {
+				action: "diagnostics",
+				file: "*",
+				timeout: 5,
+			});
+
+			expect(spawnCalls).toHaveLength(1);
+			expect(spawnCalls[0]?.cmd).toEqual([path.join(binDir, "basedpyright")]);
+			expect(getTextOutput(result)).toBe("Workspace diagnostics (Python (basedpyright)):\nNo issues found");
+		} finally {
+			tempDir.removeSync();
+		}
+	});
+
+	it("falls back to CLI resolution for configured basedpyright workspace diagnostics", async () => {
+		const tempDir = TempDir.createSync("@omp-lsp-python-workspace-fallback-");
+		const spawnCalls: SpawnCall[] = [];
+		const resolvedCli = path.join(tempDir.path(), ".venv", "bin", "basedpyright");
+
+		vi.spyOn(Bun, "spawn").mockImplementation(createSpawnMock(spawnCalls));
+		vi.spyOn(lspConfig, "loadConfig").mockReturnValue({
+			servers: {
+				basedpyright: {
+					command: "basedpyright-langserver",
+					resolvedCommand: path.join(tempDir.path(), "toolchain", "basedpyright-langserver"),
+					args: ["--stdio"],
+					fileTypes: [".py", ".pyi"],
+					rootMarkers: ["pyproject.toml"],
+				},
+			},
+			idleTimeoutMs: undefined,
+		});
+		vi.spyOn(lspConfig, "resolveCommand").mockImplementation((command, cwd) => {
+			if (cwd !== tempDir.path()) {
+				return null;
+			}
+			return command === "basedpyright" ? resolvedCli : null;
+		});
+
+		try {
+			await Bun.write(path.join(tempDir.path(), "pyproject.toml"), '[project]\nname = "demo"\nversion = "0.1.0"\n');
+
+			const tool = new LspTool({ cwd: tempDir.path() } as ToolSession);
+			const result = await tool.execute("diag-python-workspace-fallback", {
+				action: "diagnostics",
+				file: "*",
+				timeout: 5,
+			});
+
+			expect(spawnCalls).toHaveLength(1);
+			expect(spawnCalls[0]?.cmd).toEqual([resolvedCli]);
+			expect(getTextOutput(result)).toBe("Workspace diagnostics (Python (basedpyright)):\nNo issues found");
+		} finally {
+			tempDir.removeSync();
+		}
+	});
+
+	it("fails clearly instead of falling back to pyright for Python workspace diagnostics", async () => {
+		const tempDir = TempDir.createSync("@omp-lsp-python-workspace-failure-");
+		const spawnCalls: SpawnCall[] = [];
+
+		vi.spyOn(Bun, "spawn").mockImplementation(createSpawnMock(spawnCalls));
+		const whichSpy = vi.spyOn(piUtils, "$which").mockImplementation(() => null);
+
+		try {
+			const binDir = path.join(tempDir.path(), ".venv", "bin");
+			await fs.promises.mkdir(path.join(tempDir.path(), ".omp"), { recursive: true });
+			await fs.promises.mkdir(binDir, { recursive: true });
+			await Bun.write(path.join(tempDir.path(), "pyproject.toml"), '[project]\nname = "demo"\nversion = "0.1.0"\n');
+			await Bun.write(path.join(tempDir.path(), ".omp", "lsp.json"), '{"servers":{"pyright":{"disabled":true}}}\n');
+			await Bun.write(path.join(binDir, "basedpyright-langserver"), "");
+
+			const tool = new LspTool({ cwd: tempDir.path() } as ToolSession);
+			const result = await tool.execute("diag-python-workspace-failure", {
+				action: "diagnostics",
+				file: "*",
+				timeout: 5,
+			});
+
+			expect(spawnCalls).toHaveLength(0);
+			expect(whichSpy).not.toHaveBeenCalledWith("pyright");
+			expect(getTextOutput(result)).toBe(
+				"Workspace diagnostics (Python):\nFailed to resolve Python workspace diagnostics runner from configured LSP servers. Expected configured basedpyright or pyright.",
+			);
+		} finally {
 			tempDir.removeSync();
 		}
 	});

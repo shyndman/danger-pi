@@ -146,7 +146,7 @@ export class WelcomeComponent implements Component {
 	#animTimer: Timer | null = null;
 	#selectedTip: string | undefined;
 
-  // Render cache: the welcome box is the first transcript-area component, so
+	// Render cache: the welcome box is the first transcript-area component, so
 	// returning a stable array reference keeps the whole frame prefix stable.
 	// Bypassed while the intro animation runs (every frame differs).
 	#cachedWidth = -1;

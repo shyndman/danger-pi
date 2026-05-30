@@ -71,7 +71,7 @@
 - Optional: `timeout`.
 
 **Execution**
-- `file: "*"`: `runWorkspaceDiagnostics()` detects project type from root markers and runs one subprocess command: Rust `cargo check --message-format=short`, TypeScript `npx tsc --noEmit`, Go `go build ./...`, Python `pyright`.
+- `file: "*"`: `runWorkspaceDiagnostics()` detects project type from root markers and runs one subprocess command: Rust `cargo check --message-format=short`, TypeScript `npx tsc --noEmit`, Go `go build ./...`. For Python, it resolves the runner from the configured/resolved Python LSP toolchain, preferring `basedpyright` and then `pyright`, and fails clearly if neither runner can be derived.
 - Concrete file or glob: `resolveDiagnosticTargets()` treats non-globs as one target, otherwise expands a `Bun.Glob` up to `MAX_GLOB_DIAGNOSTIC_TARGETS`.
 - Per file, every matching server runs: custom clients call `lint(file)`; real LSP servers optionally wait for project load, capture `diagnosticsVersion`, `refreshFile()`, then `waitForDiagnostics()` for fresh `publishDiagnostics` (settles on the latest publish; exact-version match accepted immediately).
 - Results are deduplicated by range+message and severity-sorted.
@@ -254,7 +254,7 @@ Same as `definition`, but sends `textDocument/implementation` and reports `imple
   - None directly; communication is local stdio JSON-RPC to subprocesses.
 - Subprocesses / native bindings
   - Spawns language servers with `ptree.spawn()`.
-  - Workspace diagnostics spawns `cargo`, `npx`, `go`, or `pyright`.
+  - Workspace diagnostics spawns `cargo`, `npx`, `go`, or a Python runner derived from the configured `basedpyright` / `pyright` toolchain.
   - `BiomeClient` and `SwiftLintClient` spawn CLI tools.
   - Optional `lspmux` detection spawns `lspmux status`; supported servers may be wrapped through `lspmux client`.
 - Session state (transcript, memory, jobs, checkpoints, registries)

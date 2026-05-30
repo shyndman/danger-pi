@@ -502,6 +502,7 @@ describe("pager-mode built-in loading", () => {
 					pasteToEditor: () => {},
 					getEditorText: () => "",
 					editor: async () => undefined,
+					addAutocompleteProvider: () => {},
 					setEditorComponent: () => {},
 					theme: undefined as never,
 					getAllThemes: async () => [],
