@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { clearRenderCache, Markdown, renderInlineMarkdown } from "@oh-my-pi/pi-tui/components/markdown";
 import { setTerminalTextSizing, TERMINAL } from "@oh-my-pi/pi-tui/terminal-capabilities";
@@ -10,6 +10,9 @@ import { VirtualTerminal } from "./virtual-terminal.js";
 
 // Force full color in CI so ANSI assertions are deterministic
 const chalk = new Chalk({ level: 3 });
+
+beforeEach(() => setTerminalTextSizing(false));
+afterEach(() => setTerminalTextSizing(false));
 
 function getCellItalic(terminal: VirtualTerminal, row: number, col: number): boolean {
 	return terminal.getCellItalic(row, col);
@@ -160,6 +163,19 @@ describe("Markdown component", () => {
 			expect(numberedLines[0].startsWith("1."), `First item should be "1.", got: ${numberedLines[0]}`).toBeTruthy();
 			expect(numberedLines[1].startsWith("2."), `Second item should be "2.", got: ${numberedLines[1]}`).toBeTruthy();
 			expect(numberedLines[2].startsWith("3."), `Third item should be "3.", got: ${numberedLines[2]}`).toBeTruthy();
+		});
+
+		it("hangs soft-wrapped continuation lines under list markers", () => {
+			const unordered = new Markdown("- alpha beta gamma delta", 0, 0, defaultMarkdownTheme);
+			const ordered = new Markdown("1. alpha beta gamma delta", 0, 0, defaultMarkdownTheme);
+
+			const unorderedLines = unordered.render(14).map(line => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
+			const orderedLines = ordered.render(14).map(line => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd());
+
+			expect(unorderedLines[0]).toBe("- alpha beta");
+			expect(unorderedLines[1]).toBe("  gamma delta");
+			expect(orderedLines[0]).toBe("1. alpha beta");
+			expect(orderedLines[1]).toBe("   gamma delta");
 		});
 	});
 
@@ -717,6 +733,18 @@ more text`,
 			expect(seenSources).toEqual([invalidSource]);
 			expect(plainLines).toEqual(["```mermaid", "  flowchart TD", "    A --", "```"]);
 		});
+
+		it("preserves resolver ANSI styling for mermaid output", () => {
+			clearRenderCache();
+			const markdown = new Markdown("```mermaid\nflowchart TD\n  Start-->Stop\n```", 0, 0, {
+				...defaultMarkdownTheme,
+				resolveMermaidAscii: () => "\x1b[31mStart\x1b[39m",
+			});
+
+			const renderedLines = markdown.render(80);
+			expect(renderedLines[0]).not.toBe(Bun.stripANSI(renderedLines[0]));
+			expect(Bun.stripANSI(renderedLines[0]).trimEnd()).toBe("Start");
+		});
 	});
 
 	describe("Spacing after dividers", () => {
@@ -1098,6 +1126,26 @@ bar`,
 		// cache keys on TERMINAL.hyperlinks, so flipping the bit invalidates entries.
 		const terminalState = TERMINAL as unknown as { hyperlinks: boolean };
 		const originalHyperlinks = terminalState.hyperlinks;
+		const createMarkdownTheme = (overrides: Partial<typeof defaultMarkdownTheme> = {}) => ({
+			heading: defaultMarkdownTheme.heading,
+			link: defaultMarkdownTheme.link,
+			linkUrl: defaultMarkdownTheme.linkUrl,
+			linkUrlWarning: defaultMarkdownTheme.linkUrlWarning,
+			linkUrlMode: defaultMarkdownTheme.linkUrlMode,
+			code: defaultMarkdownTheme.code,
+			codeBlock: defaultMarkdownTheme.codeBlock,
+			codeBlockBorder: defaultMarkdownTheme.codeBlockBorder,
+			quote: defaultMarkdownTheme.quote,
+			quoteBorder: defaultMarkdownTheme.quoteBorder,
+			hr: defaultMarkdownTheme.hr,
+			listBullet: defaultMarkdownTheme.listBullet,
+			bold: defaultMarkdownTheme.bold,
+			italic: defaultMarkdownTheme.italic,
+			strikethrough: defaultMarkdownTheme.strikethrough,
+			underline: defaultMarkdownTheme.underline,
+			symbols: defaultMarkdownTheme.symbols,
+			...overrides,
+		});
 		beforeAll(() => {
 			terminalState.hyperlinks = true;
 		});
@@ -1157,31 +1205,78 @@ bar`,
 			expect(closeMatches.length).toBeGreaterThan(0);
 		});
 
-		it("should show URL for explicit markdown links with different text", () => {
-			const markdown = new Markdown("[click here](https://example.com)", 0, 0, defaultMarkdownTheme);
+		it("should preserve the full suffix for explicit markdown links in full mode", () => {
+			const markdown = new Markdown("[GPU](https://www.ebay.ca/itm/123?x=1)", 0, 0, defaultMarkdownTheme);
 
 			const lines = markdown.render(80);
+			const output = lines.join("\n");
 			const plainLines = lines.map(stripTerminalSequences);
 			const joinedPlain = plainLines.join(" ");
 
-			// Should show both link text and URL
-			expect(joinedPlain.includes("click here"), "Should contain link text").toBeTruthy();
-			expect(joinedPlain.includes("(https://example.com)"), "Should show URL in parentheses").toBeTruthy();
+			expect(joinedPlain.includes("GPU"), "Should contain link text").toBeTruthy();
+			expect(
+				joinedPlain.includes("(https://www.ebay.ca/itm/123?x=1)"),
+				"Should preserve the full URL suffix",
+			).toBeTruthy();
+			expect(output.includes("\x1b]8;;https://www.ebay.ca/itm/123?x=1\x07")).toBeTruthy();
 		});
 
-		it("should show URL for explicit mailto links with different text", () => {
-			const markdown = new Markdown("[Email me](mailto:test@example.com)", 0, 0, defaultMarkdownTheme);
+		it("should shorten explicit https link suffixes in short mode", () => {
+			const markdown = new Markdown(
+				"[GPU](https://www.ebay.ca/itm/123?x=1)",
+				0,
+				0,
+				createMarkdownTheme({ linkUrlMode: "short" }),
+			);
 
 			const lines = markdown.render(80);
+			const output = lines.join("\n");
 			const plainLines = lines.map(stripTerminalSequences);
 			const joinedPlain = plainLines.join(" ");
 
-			// Should show both link text and mailto URL
+			expect(joinedPlain.includes("GPU (ebay.ca)"), "Should show the normalized hostname").toBeTruthy();
+			expect(joinedPlain.includes("www.ebay.ca")).toBeFalsy();
+			expect(joinedPlain.includes("/itm/123?x=1")).toBeFalsy();
+			expect(output.includes("\x1b]8;;https://www.ebay.ca/itm/123?x=1\x07")).toBeTruthy();
+		});
+
+		it("should warn on explicit http link suffixes in short mode", () => {
+			const markdown = new Markdown(
+				"[Legacy](http://example.com/path?q=1)",
+				0,
+				0,
+				createMarkdownTheme({ linkUrlMode: "short" }),
+			);
+
+			const lines = markdown.render(80);
+			const output = lines.join("\n");
+			const plainLines = lines.map(stripTerminalSequences);
+			const joinedPlain = plainLines.join(" ");
+
+			expect(joinedPlain.includes("Legacy (http://example.com/path?q=1)")).toBeTruthy();
+			expect(output.includes("\x1b[31m (http://example.com/path?q=1)\x1b[39m")).toBeTruthy();
+			expect(output.includes("\x1b]8;;http://example.com/path?q=1\x07")).toBeTruthy();
+		});
+
+		it("should keep non-https explicit link suffixes unchanged in short mode", () => {
+			const markdown = new Markdown(
+				"[Email me](mailto:test@example.com)",
+				0,
+				0,
+				createMarkdownTheme({ linkUrlMode: "short" }),
+			);
+
+			const lines = markdown.render(80);
+			const output = lines.join("\n");
+			const plainLines = lines.map(stripTerminalSequences);
+			const joinedPlain = plainLines.join(" ");
+
 			expect(joinedPlain.includes("Email me"), "Should contain link text").toBeTruthy();
 			expect(
 				joinedPlain.includes("(mailto:test@example.com)"),
 				"Should show mailto URL in parentheses",
 			).toBeTruthy();
+			expect(output.includes("\x1b[31m (mailto:test@example.com)\x1b[39m")).toBeFalsy();
 		});
 	});
 

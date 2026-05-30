@@ -937,6 +937,18 @@ export const SETTINGS_SCHEMA = {
 		},
 	},
 
+	"display.markdownLinkUrlMode": {
+		type: "enum",
+		values: ["full", "short"] as const,
+		default: "full",
+	},
+
+	// Hidden from /settings; configure via `omp config set display.messageWrapWidth <cols>`.
+	"display.messageWrapWidth": {
+		type: "number",
+		default: 100,
+	},
+
 	"display.showTokenUsage": {
 		type: "boolean",
 		default: false,

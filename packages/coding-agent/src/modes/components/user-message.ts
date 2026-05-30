@@ -1,7 +1,8 @@
-import { Container, Markdown } from "@oh-my-pi/pi-tui";
+import { applyBackgroundToLine, Markdown } from "@oh-my-pi/pi-tui";
 import { getMarkdownTheme, theme } from "../../modes/theme/theme";
 import { imageReferenceHyperlink, renderPlaceholders } from "../image-references";
 import { highlightMagicKeywords } from "../magic-keywords";
+import { ChatMessageContainer } from "./message-layout";
 
 // OSC 133 shell integration: marks prompt zones for terminal multiplexers
 // Do not emit OSC 133 C ("command start") here: the transcript has no matching
@@ -13,7 +14,8 @@ const OSC133_ZONE_END = "\x1b]133;B\x07";
 /**
  * Component that renders a user message
  */
-export class UserMessageComponent extends Container {
+export class UserMessageComponent extends ChatMessageContainer {
+	readonly #bgColor: (value: string) => string;
 	// Memoized OSC 133 zone wrapping keyed on the underlying container render
 	// (same source ref ⇒ identical rows ⇒ reuse the wrapped copy). Keeps this
 	// component reference-stable for the transcript's incremental assembly and
@@ -23,7 +25,7 @@ export class UserMessageComponent extends Container {
 
 	constructor(text: string, synthetic = false, imageLinks?: readonly (string | undefined)[]) {
 		super();
-		const bgColor = (value: string) => theme.bg("userMessageBg", value);
+		this.#bgColor = (value: string) => theme.bg("userMessageBg", value);
 		// Paint the magic keywords ("ultrathink"/"orchestrate"/"workflowz") inside the rendered
 		// bubble too — matching the live editor glow. The Markdown component routes code spans and
 		// fenced blocks through its own code styling (never `color`), so those are already excluded;
@@ -43,14 +45,13 @@ export class UserMessageComponent extends Container {
 						: theme.fg("accent", `\x1b[1m${label}\x1b[22m`),
 			});
 		const md = new Markdown(text, 1, 1, getMarkdownTheme(), {
-			bgColor,
 			color,
 		});
 		md.setIgnoreTight(true);
 		this.addChild(md);
 	}
 
-	override render(width: number): readonly string[] {
+	override render(width: number): string[] {
 		const lines = super.render(width);
 		if (lines.length === 0) {
 			return lines;
@@ -59,6 +60,9 @@ export class UserMessageComponent extends Container {
 			return this.#zoneLines;
 		}
 		const wrapped = lines.slice();
+		for (let i = 1; i < wrapped.length; i++) {
+			wrapped[i] = applyBackgroundToLine(wrapped[i], width, this.#bgColor);
+		}
 		wrapped[0] = OSC133_ZONE_START + wrapped[0];
 		wrapped[wrapped.length - 1] = wrapped[wrapped.length - 1] + OSC133_ZONE_END;
 		this.#zoneSource = lines;

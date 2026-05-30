@@ -61,6 +61,8 @@ export const defaultMarkdownTheme: MarkdownTheme = {
 	heading: (text: string) => chalk.bold.cyan(text),
 	link: (text: string) => chalk.blue(text),
 	linkUrl: (text: string) => chalk.dim(text),
+	linkUrlWarning: (text: string) => chalk.red(text),
+	linkUrlMode: "full",
 	code: (text: string) => chalk.yellow(text),
 	codeBlock: (text: string) => chalk.green(text),
 	codeBlockBorder: (text: string) => chalk.dim(text),

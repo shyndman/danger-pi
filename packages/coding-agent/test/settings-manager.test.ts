@@ -9,6 +9,7 @@ import type { Context } from "@oh-my-pi/pi-ai/types";
 import {
 	getDefault,
 	getEnumValues,
+	hasUi,
 	onAppendOnlyModeChanged,
 	onStatusLineSessionAccentChanged,
 	resetSettingsForTest,
@@ -873,6 +874,19 @@ describe("Settings", () => {
 					Settings.init({ cwd: projectDir, agentDir, inMemory: true, configFiles: [overlayPath] }),
 				).rejects.toThrow("Provider request limits must be positive numbers: umans");
 			});
+		});
+	});
+
+	describe("display.markdownLinkUrlMode", () => {
+		it("defaults to full, stays hidden from the settings UI, and round-trips through settings", () => {
+			expect(getDefault("display.markdownLinkUrlMode")).toBe("full");
+			expect(hasUi("display.markdownLinkUrlMode")).toBe(false);
+
+			const settings = Settings.isolated();
+			expect(settings.get("display.markdownLinkUrlMode")).toBe("full");
+
+			settings.set("display.markdownLinkUrlMode", "short");
+			expect(settings.get("display.markdownLinkUrlMode")).toBe("short");
 		});
 	});
 });

@@ -166,4 +166,24 @@ describe("config CLI schema coverage", () => {
 		expect(parsed.type).toBe("enum");
 		expect(parsed.value).toBe("max");
 	});
+
+	it("sets and gets hidden message wrap width settings via CLI", async () => {
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await runConfigCommand({
+			action: "set",
+			key: "display.messageWrapWidth",
+			value: "72",
+			flags: { json: true },
+		});
+		await runConfigCommand({ action: "get", key: "display.messageWrapWidth", flags: { json: true } });
+
+		const payload = logSpy.mock.calls.at(-1)?.[0];
+		expect(typeof payload).toBe("string");
+		expect(JSON.parse(String(payload))).toMatchObject({
+			key: "display.messageWrapWidth",
+			type: "number",
+			value: 72,
+		});
+	});
 });

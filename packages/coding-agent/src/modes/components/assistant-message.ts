@@ -8,6 +8,7 @@ import { getPreviewLines, resolveImageOptions, TRUNCATE_LENGTHS } from "../../to
 import { canonicalizeMessage, formatThinkingForDisplay, hasDisplayableThinking } from "../../utils/thinking-display";
 import { resolveAssistantErrorPresentation } from "../utils/transcript-render-helpers";
 import { type CacheInvalidation, CacheInvalidationMarkerComponent } from "./cache-invalidation-marker";
+import { ChatMessageContainer } from "./message-layout";
 
 /**
  * Max lines of a turn-ending provider error rendered inline in the transcript.
@@ -167,7 +168,7 @@ function lerpHex(from: string, to: string, t: number): string {
 /**
  * Component that renders a complete assistant message
  */
-export class AssistantMessageComponent extends Container {
+export class AssistantMessageComponent extends ChatMessageContainer {
 	#contentContainer: Container;
 	#markerSlot: Container;
 	#lastMessage?: AssistantMessage;
@@ -286,7 +287,7 @@ export class AssistantMessageComponent extends Container {
 		}
 	}
 
-	override render(width: number): readonly string[] {
+	override render(width: number): string[] {
 		this.#lastRenderWidth = width;
 		return super.render(width);
 	}
@@ -488,7 +489,7 @@ export class AssistantMessageComponent extends Container {
 	 * can't flood the transcript. Mirrors {@link ErrorBannerComponent}.
 	 */
 	#appendErrorBlock(message: string): void {
-		const lines = getPreviewLines(message, MAX_TRANSCRIPT_ERROR_LINES, TRUNCATE_LENGTHS.LINE);
+		const lines = getPreviewLines(message, MAX_TRANSCRIPT_ERROR_LINES, TRUNCATE_LENGTHS.CONTENT);
 		if (lines.length === 0) lines.push("Unknown error");
 		// The caller owns the separating Spacer; adding one here doubled the gap.
 		this.#contentContainer.addChild(new Text(theme.fg("error", `Error: ${lines[0]}`), 1, 0));

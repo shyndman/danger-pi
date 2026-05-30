@@ -9,7 +9,14 @@ import {
 	highlightCode as nativeHighlightCode,
 	supportsLanguage as nativeSupportsLanguage,
 } from "@oh-my-pi/pi-natives";
-import type { EditorTheme, MarkdownTheme, SelectListTheme, SettingsListTheme, SymbolTheme } from "@oh-my-pi/pi-tui";
+import type {
+	EditorTheme,
+	MarkdownLinkUrlMode,
+	MarkdownTheme,
+	SelectListTheme,
+	SettingsListTheme,
+	SymbolTheme,
+} from "@oh-my-pi/pi-tui";
 import { adjustHsv, colorLuma, getCustomThemesDir, isEnoent, logger, relativeLuminance } from "@oh-my-pi/pi-utils";
 import { type } from "arktype";
 import chalk from "chalk";
@@ -1268,6 +1275,10 @@ export type ThemeBg =
 	| "toolErrorBg"
 	| "statusLineBg";
 
+type ThemeExportColor = "pageBg" | "cardBg" | "infoBg";
+
+type ThemeExportColors = Partial<Record<ThemeExportColor, string>>;
+
 type ColorMode = "truecolor" | "256color";
 
 // ============================================================================
@@ -1478,6 +1489,9 @@ export class Theme {
 	readonly #hexFgColors: Record<ThemeColor, string>;
 	/** Resolved hex strings for background colors — populated at construction. */
 	readonly #hexBgColors: Record<ThemeBg, string>;
+	#resolvedFgColors: Record<ThemeColor, string>;
+	#resolvedBgColors: Record<ThemeBg, string>;
+	#exportColors: ThemeExportColors;
 	#symbols: SymbolMap;
 	#spinnerFramesOverrides: Partial<Record<SpinnerType, string[]>>;
 	/**
@@ -1493,6 +1507,9 @@ export class Theme {
 	constructor(
 		fgColors: Record<ThemeColor, string | number>,
 		bgColors: Record<ThemeBg, string | number>,
+		resolvedFgColors: Record<ThemeColor, string>,
+		resolvedBgColors: Record<ThemeBg, string>,
+		exportColors: ThemeExportColors,
 		private readonly mode: ColorMode,
 		private readonly symbolPreset: SymbolPreset,
 		symbolOverrides: Partial<Record<SymbolKey, string>>,
@@ -1504,16 +1521,19 @@ export class Theme {
 
 		this.#fgColors = {} as Record<ThemeColor, string>;
 		this.#hexFgColors = {} as Record<ThemeColor, string>;
+		this.#resolvedFgColors = resolvedFgColors;
 		for (const [key, value] of Object.entries(fgColors) as [ThemeColor, string | number][]) {
 			this.#fgColors[key] = fgAnsi(value, mode);
 			this.#hexFgColors[key] = resolveToHex(value, slIsLight);
 		}
 		this.#bgColors = {} as Record<ThemeBg, string>;
 		this.#hexBgColors = {} as Record<ThemeBg, string>;
+		this.#resolvedBgColors = resolvedBgColors;
 		for (const [key, value] of Object.entries(bgColors) as [ThemeBg, string | number][]) {
 			this.#bgColors[key] = bgAnsi(value, mode);
 			this.#hexBgColors[key] = resolveToHex(value, slIsLight);
 		}
+		this.#exportColors = exportColors;
 		// Build symbol map from preset + overrides
 		const baseSymbols = SYMBOL_PRESETS[symbolPreset];
 		this.#symbols = { ...baseSymbols };
@@ -1668,6 +1688,22 @@ export class Theme {
 
 	getColorMode(): ColorMode {
 		return this.mode;
+	}
+
+	getResolvedFgColor(color: ThemeColor): string {
+		const resolved = this.#resolvedFgColors[color];
+		if (resolved === undefined) throw new Error(`Unknown theme color: ${color}`);
+		return resolved;
+	}
+
+	getResolvedBgColor(color: ThemeBg): string {
+		const resolved = this.#resolvedBgColors[color];
+		if (resolved === undefined) throw new Error(`Unknown theme background color: ${color}`);
+		return resolved;
+	}
+
+	getExportColor(color: ThemeExportColor): string | undefined {
+		return this.#exportColors[color];
 	}
 
 	getThinkingBorderColor(level: ThinkingLevel | Effort): (str: string) => string {
@@ -2070,6 +2106,49 @@ interface CreateThemeOptions {
 /** HSV adjustment to shift green toward blue for colorblind mode (red-green colorblindness) */
 const COLORBLIND_ADJUSTMENT = { h: 60, s: 0.71 };
 
+function normalizeResolvedThemeColorValue(value: string | number, emptyFallback?: string): string {
+	if (typeof value === "number") {
+		return ansi256ToHex(value);
+	}
+	return value === "" ? (emptyFallback ?? value) : value;
+}
+
+function getDefaultResolvedTextColor(resolvedColors: Record<string, string | number>): string {
+	const bg = resolvedColors.userMessageBg;
+	if (typeof bg === "string" && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+		const r = parseInt(bg.slice(1, 3), 16) / 255;
+		const g = parseInt(bg.slice(3, 5), 16) / 255;
+		const b = parseInt(bg.slice(5, 7), 16) / 255;
+		const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		return luminance > 0.5 ? "#000000" : "#e5e5e7";
+	}
+	return "#e5e5e7";
+}
+
+function resolveThemeExportColors(themeJson: ThemeJson): ThemeExportColors {
+	const exportSection = themeJson.export;
+	if (!exportSection) return {};
+
+	const vars = themeJson.vars ?? {};
+	const resolve = (value: string | number | undefined): string | undefined => {
+		if (value === undefined) return undefined;
+		if (typeof value === "number") return ansi256ToHex(value);
+		if (value === "" || value.startsWith("#")) return value;
+		const varName = value.startsWith("$") ? value.slice(1) : value;
+		if (varName in vars) {
+			const resolved = resolveVarRefs(varName, vars);
+			return typeof resolved === "number" ? ansi256ToHex(resolved) : resolved;
+		}
+		return value;
+	};
+
+	return {
+		pageBg: resolve(exportSection.pageBg),
+		cardBg: resolve(exportSection.cardBg),
+		infoBg: resolve(exportSection.infoBg),
+	};
+}
+
 function createTheme(themeJson: ThemeJson, options: CreateThemeOptions = {}): Theme {
 	const { mode, symbolPresetOverride, colorBlindMode } = options;
 	const colorMode = mode ?? detectColorMode();
@@ -2083,7 +2162,10 @@ function createTheme(themeJson: ThemeJson, options: CreateThemeOptions = {}): Th
 	}
 
 	const fgColors: Record<ThemeColor, string | number> = {} as Record<ThemeColor, string | number>;
+	const resolvedFgColors: Record<ThemeColor, string> = {} as Record<ThemeColor, string>;
 	const bgColors: Record<ThemeBg, string | number> = {} as Record<ThemeBg, string | number>;
+	const resolvedBgColors: Record<ThemeBg, string> = {} as Record<ThemeBg, string>;
+	const defaultTextColor = getDefaultResolvedTextColor(resolvedColors);
 	const bgColorKeys: Set<string> = new Set([
 		"selectedBg",
 		"userMessageBg",
@@ -2096,15 +2178,27 @@ function createTheme(themeJson: ThemeJson, options: CreateThemeOptions = {}): Th
 	for (const [key, value] of Object.entries(resolvedColors)) {
 		if (bgColorKeys.has(key)) {
 			bgColors[key as ThemeBg] = value;
+			resolvedBgColors[key as ThemeBg] = normalizeResolvedThemeColorValue(value);
 		} else {
 			fgColors[key as ThemeColor] = value;
+			resolvedFgColors[key as ThemeColor] = normalizeResolvedThemeColorValue(value, defaultTextColor);
 		}
 	}
 	// Extract symbol configuration - settings override takes precedence over theme
 	const symbolPreset: SymbolPreset = symbolPresetOverride ?? themeJson.symbols?.preset ?? "unicode";
 	const symbolOverrides = themeJson.symbols?.overrides ?? {};
 	const spinnerFramesOverrides = normalizeSpinnerFramesOverride(themeJson.symbols?.spinnerFrames);
-	return new Theme(fgColors, bgColors, colorMode, symbolPreset, symbolOverrides, spinnerFramesOverrides);
+	return new Theme(
+		fgColors,
+		bgColors,
+		resolvedFgColors,
+		resolvedBgColors,
+		resolveThemeExportColors(themeJson),
+		colorMode,
+		symbolPreset,
+		symbolOverrides,
+		spinnerFramesOverrides,
+	);
 }
 
 async function loadTheme(name: string, options: CreateThemeOptions = {}): Promise<Theme> {
@@ -2186,6 +2280,7 @@ export interface ThemeChangeEvent {
 
 var currentSymbolPresetOverride: SymbolPreset | undefined;
 var currentColorBlindMode: boolean = false;
+var currentMarkdownLinkUrlMode: MarkdownLinkUrlMode = "full";
 var themeWatcher: fs.FSWatcher | undefined;
 var themeReloadTimer: NodeJS.Timeout | undefined;
 var sigwinchHandler: (() => void) | undefined;
@@ -2377,6 +2472,16 @@ export async function setColorBlindMode(enabled: boolean): Promise<void> {
 		if (requestId !== themeLoadRequestId) return;
 	}
 	notifyThemeChange({ ephemeral: true });
+}
+
+export function setMarkdownLinkUrlMode(mode: MarkdownLinkUrlMode): void {
+	if (currentMarkdownLinkUrlMode === mode) {
+		return;
+	}
+	currentMarkdownLinkUrlMode = mode;
+	cachedMarkdownTheme = undefined;
+	cachedMarkdownThemeRef = undefined;
+	notifyThemeChange();
 }
 
 /**
@@ -2649,34 +2754,6 @@ function getHtmlDefaultTextForSurface(surface: string | number | undefined): str
 	return luminance !== undefined && luminance > 0.5 ? "#000000" : "#e5e5e7";
 }
 
-function resolveThemeExportColors(themeJson: ThemeJson): {
-	pageBg?: string;
-	cardBg?: string;
-	infoBg?: string;
-} {
-	const exportSection = themeJson.export;
-	if (!exportSection) return {};
-
-	const vars = themeJson.vars ?? {};
-	const resolve = (value: string | number | undefined): string | undefined => {
-		if (value === undefined) return undefined;
-		if (typeof value === "number") return ansi256ToHex(value);
-		if (value === "" || value.startsWith("#")) return value;
-		const varName = value.startsWith("$") ? value.slice(1) : value;
-		if (varName in vars) {
-			const resolved = resolveVarRefs(varName, vars);
-			return typeof resolved === "number" ? ansi256ToHex(resolved) : resolved;
-		}
-		return value;
-	};
-
-	return {
-		pageBg: resolve(exportSection.pageBg),
-		cardBg: resolve(exportSection.cardBg),
-		infoBg: resolve(exportSection.infoBg),
-	};
-}
-
 /**
  * Get resolved theme colors as CSS-compatible hex strings.
  * Used by HTML export to generate CSS custom properties.
@@ -2908,6 +2985,8 @@ export function getMarkdownTheme(): MarkdownTheme {
 		heading: (text: string) => theme.fg("mdHeading", text),
 		link: (text: string) => theme.fg("mdLink", text),
 		linkUrl: (text: string) => theme.fg("mdLinkUrl", text),
+		linkUrlWarning: (text: string) => theme.fg("error", text),
+		linkUrlMode: currentMarkdownLinkUrlMode,
 		code: (text: string) => theme.fg("mdCode", text),
 		codeBlock: (text: string) => theme.fg("mdCodeBlock", text),
 		codeBlockBorder: (text: string) => theme.fg("mdCodeBlockBorder", text),

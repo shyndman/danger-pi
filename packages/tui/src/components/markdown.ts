@@ -657,6 +657,8 @@ export interface MarkdownTheme {
 	heading: (text: string) => string;
 	link: (text: string) => string;
 	linkUrl: (text: string) => string;
+	linkUrlWarning?: (text: string) => string;
+	linkUrlMode?: MarkdownLinkUrlMode;
 	code: (text: string) => string;
 	codeBlock: (text: string) => string;
 	codeBlockBorder: (text: string) => string;
@@ -677,14 +679,29 @@ export interface MarkdownTheme {
 	symbols: SymbolTheme;
 }
 
+export type MarkdownLinkUrlMode = "full" | "short";
+
 interface InlineStyleContext {
 	applyText: (text: string) => string;
 	stylePrefix: string;
 }
 
-type ListToken = Token & { items: Array<{ tokens?: Token[] }>; ordered: boolean; start?: number };
+type ListToken = Token & {
+	items: Array<{ tokens?: Token[] }>;
+	ordered: boolean;
+	start?: number;
+};
 type TableCellToken = { tokens?: Token[] };
-type TableToken = Token & { header: TableCellToken[]; rows: TableCellToken[][]; raw?: string };
+type TableToken = Token & {
+	header: TableCellToken[];
+	rows: TableCellToken[][];
+	raw?: string;
+};
+
+type ListItemLine = {
+	text: string;
+	nestedList: boolean;
+};
 
 function formatHyperlink(text: string, target: string): string {
 	if (!TERMINAL.hyperlinks || !target) {
@@ -936,6 +953,44 @@ interface StreamPrefixLineCache extends RenderSignature {
 	text: string;
 	tokenCount: number;
 	lines: readonly string[];
+}
+
+type ExplicitLinkSuffix = {
+	text: string;
+	style: (text: string) => string;
+};
+
+function getShortHttpsHostname(href: string): string | undefined {
+	try {
+		const url = new URL(href);
+		if (url.protocol !== "https:") {
+			return undefined;
+		}
+		const hostname = url.hostname.replace(/^www\./i, "");
+		return hostname || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function getExplicitLinkSuffix(theme: MarkdownTheme, href: string): ExplicitLinkSuffix {
+	const fullText = ` (${href})`;
+	if (theme.linkUrlMode !== "short") {
+		return { text: fullText, style: theme.linkUrl };
+	}
+
+	if (href.startsWith("https://")) {
+		const hostname = getShortHttpsHostname(href);
+		if (hostname) {
+			return { text: ` (${hostname})`, style: theme.linkUrl };
+		}
+	}
+
+	if (href.startsWith("http://")) {
+		return { text: fullText, style: theme.linkUrlWarning ?? theme.linkUrl };
+	}
+
+	return { text: fullText, style: theme.linkUrl };
 }
 
 export class Markdown implements Component {
@@ -1583,7 +1638,7 @@ export class Markdown implements Component {
 			}
 
 			case "list": {
-				const listLines = this.#renderList(token as ListToken, 0, styleContext);
+				const listLines = this.#renderList(token as ListToken, 0, width, styleContext);
 				lines.push(...listLines);
 				// Don't add spacing after lists if a space token follows
 				// (the space token will handle it)
@@ -1802,7 +1857,8 @@ export class Markdown implements Component {
 					if (token.text === token.href || token.text === hrefForComparison)
 						result += clickableLinkText + stylePrefix;
 					else {
-						const styledLinkUrl = this.#theme.linkUrl(` (${token.href})`);
+						const linkSuffix = getExplicitLinkSuffix(this.#theme, token.href);
+						const styledLinkUrl = linkSuffix.style(linkSuffix.text);
 						result += clickableLinkText + formatHyperlink(styledLinkUrl, token.href) + stylePrefix;
 					}
 					break;
@@ -1858,7 +1914,7 @@ export class Markdown implements Component {
 	/**
 	 * Render a list with proper nesting support
 	 */
-	#renderList(token: ListToken, depth: number, styleContext?: InlineStyleContext): string[] {
+	#renderList(token: ListToken, depth: number, width: number, styleContext?: InlineStyleContext): string[] {
 		const lines: string[] = [];
 		const indent = "  ".repeat(depth);
 		// Use the list's start property (defaults to 1 for ordered lists)
@@ -1867,77 +1923,75 @@ export class Markdown implements Component {
 		for (let i = 0; i < token.items.length; i++) {
 			const item = token.items[i];
 			const bullet = token.ordered ? `${startNumber + i}. ` : "- ";
-			// Continuation rows align under the item text, so the hang matches the
-			// actual bullet width (`10. ` is 4 cells, not 2).
-			const continuationIndent = indent + padding(bullet.length);
+			const firstPrefix = `${indent}${this.#theme.listBullet(bullet)}`;
+			const continuationPrefix = `${indent}${padding(visibleWidth(bullet))}`;
 
 			// Process item tokens; nested-list lines arrive structurally tagged and
 			// already carry their own full indent.
-			const itemLines = this.#renderListItem(item.tokens || [], depth, styleContext);
+			const itemLines = this.#renderListItem(item.tokens || [], depth, width, styleContext);
 
 			if (itemLines.length > 0) {
-				const firstLine = itemLines[0]!;
-				if (firstLine.nested) {
-					// Nested list first - keep as-is (already has full indent)
-					lines.push(firstLine.text);
-				} else {
-					// Regular text content - add indent and bullet
-					lines.push(indent + this.#theme.listBullet(bullet) + firstLine.text);
-				}
-
-				// Rest of the lines
-				for (let j = 1; j < itemLines.length; j++) {
+				for (let j = 0; j < itemLines.length; j++) {
 					const line = itemLines[j]!;
-					if (line.nested) {
-						// Nested list line - already has full indent
+					if (line.nestedList) {
 						lines.push(line.text);
-					} else {
-						// Regular content - hang under the item text
-						lines.push(continuationIndent + line.text);
+						continue;
 					}
+
+					const linePrefix = j === 0 ? firstPrefix : continuationPrefix;
+					lines.push(...this.#wrapListLine(line.text, linePrefix, continuationPrefix, width));
 				}
 			} else {
-				lines.push(indent + this.#theme.listBullet(bullet));
+				lines.push(firstPrefix);
 			}
 		}
 
 		return lines;
 	}
 
+	#wrapListLine(text: string, firstPrefix: string, continuationPrefix: string, width: number): string[] {
+		const contentWidth = Math.max(1, width - visibleWidth(firstPrefix));
+		const wrappedLines = wrapTextWithAnsi(text, contentWidth);
+		if (wrappedLines.length === 0) {
+			return [firstPrefix];
+		}
+
+		return [`${firstPrefix}${wrappedLines[0]}`, ...wrappedLines.slice(1).map(line => `${continuationPrefix}${line}`)];
+	}
+
 	/**
 	 * Render list item tokens, handling nested lists.
-	 * Returns lines WITHOUT the parent indent (renderList adds it); lines that
-	 * belong to a nested list are tagged `nested` so the caller never has to
-	 * sniff theme-dependent ANSI bytes to recognize them.
+	 * Content lines return without the parent indent; nested list lines keep
+	 * their full rendered indent so the caller can splice them in directly
+	 * without sniffing theme-dependent ANSI bytes.
 	 */
 	#renderListItem(
 		tokens: Token[],
 		parentDepth: number,
+		width: number,
 		styleContext?: InlineStyleContext,
-	): Array<{ text: string; nested: boolean }> {
-		const lines: Array<{ text: string; nested: boolean }> = [];
+	): ListItemLine[] {
+		const lines: ListItemLine[] = [];
 
 		for (const token of tokens) {
 			if (token.type === "list") {
 				// Nested list - render with one additional indent level
-				// These lines carry their own indent, so tag them for pass-through
-				const nestedLines = this.#renderList(token as ListToken, parentDepth + 1, styleContext);
-				for (const nestedLine of nestedLines) {
-					lines.push({ text: nestedLine, nested: true });
-				}
+				// These lines will have their own indent, so we just add them as-is
+				const nestedLines = this.#renderList(token as ListToken, parentDepth + 1, width, styleContext);
+				lines.push(...nestedLines.map(text => ({ text, nestedList: true })));
 			} else if (token.type === "text") {
 				// Text content (may have inline tokens, or a sole display-math token)
 				const displayMath = soleDisplayMath(token.tokens);
 				if (displayMath) {
 					const apply = styleContext?.applyText ?? ((t: string) => this.#applyDefaultStyle(t));
 					for (const mathLine of latexToBlock(displayMath.text))
-						lines.push({ text: apply(mathLine), nested: false });
+						lines.push({ text: apply(mathLine), nestedList: false });
 				} else {
 					const text =
 						token.tokens && token.tokens.length > 0
 							? this.#renderInlineTokens(token.tokens, styleContext)
 							: token.text || "";
-					lines.push({ text, nested: false });
+					lines.push({ text, nestedList: false });
 				}
 			} else if (token.type === "paragraph") {
 				// Paragraph in list item
@@ -1945,35 +1999,35 @@ export class Markdown implements Component {
 				const displayMath = soleDisplayMath(token.tokens);
 				if (displayMath) {
 					for (const mathLine of latexToBlock(displayMath.text))
-						lines.push({ text: apply(mathLine), nested: false });
+						lines.push({ text: apply(mathLine), nestedList: false });
 				} else {
-					lines.push({ text: this.#renderInlineTokens(token.tokens || [], styleContext), nested: false });
+					lines.push({ text: this.#renderInlineTokens(token.tokens || [], styleContext), nestedList: false });
 				}
 			} else if (token.type === "code") {
 				// Code block in list item
 				const codeIndent = padding(this.#codeBlockIndent);
-				lines.push({ text: this.#theme.codeBlockBorder(`\`\`\`${token.lang || ""}`), nested: false });
+				lines.push({ text: this.#theme.codeBlockBorder(`\`\`\`${token.lang || ""}`), nestedList: false });
 				if (this.#theme.highlightCode && (!this.transientRenderCache || this.#renderingFrozenPrefix)) {
 					const highlightedLines = this.#theme.highlightCode(token.text, token.lang);
 					for (const hlLine of highlightedLines) {
-						lines.push({ text: `${codeIndent}${hlLine}`, nested: false });
+						lines.push({ text: `${codeIndent}${hlLine}`, nestedList: false });
 					}
 				} else {
 					const codeLines = token.text.split("\n");
 					for (const codeLine of codeLines) {
-						lines.push({ text: `${codeIndent}${this.#theme.codeBlock(codeLine)}`, nested: false });
+						lines.push({ text: `${codeIndent}${this.#theme.codeBlock(codeLine)}`, nestedList: false });
 					}
 				}
-				lines.push({ text: this.#theme.codeBlockBorder("```"), nested: false });
+				lines.push({ text: this.#theme.codeBlockBorder("```"), nestedList: false });
 			} else if (isMathToken(token)) {
 				// Display math block inside a list item: stack fractions / matrix rows.
 				const apply = styleContext?.applyText ?? ((t: string) => this.#applyDefaultStyle(t));
-				for (const mathLine of latexToBlock(token.text)) lines.push({ text: apply(mathLine), nested: false });
+				for (const mathLine of latexToBlock(token.text)) lines.push({ text: apply(mathLine), nestedList: false });
 			} else {
 				// Other token types - try to render as inline
 				const text = this.#renderInlineTokens([token], styleContext);
 				if (text) {
-					lines.push({ text, nested: false });
+					lines.push({ text, nestedList: false });
 				}
 			}
 		}

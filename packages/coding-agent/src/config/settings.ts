@@ -30,7 +30,13 @@ import { JSONC, YAML } from "bun";
 import { type Settings as SettingsCapabilityItem, settingsCapability } from "../capability/settings";
 import type { ModelRole } from "../config/model-roles";
 import { loadCapability } from "../discovery";
-import { isLightTheme, setAutoThemeMapping, setColorBlindMode, setSymbolPreset } from "../modes/theme/theme";
+import {
+	isLightTheme,
+	setAutoThemeMapping,
+	setColorBlindMode,
+	setMarkdownLinkUrlMode,
+	setSymbolPreset,
+} from "../modes/theme/theme";
 import { AgentStorage } from "../session/agent-storage";
 import { normalizeToolName } from "../tools/builtin-names";
 import { type EditMode, normalizeEditMode } from "../utils/edit-mode";
@@ -772,7 +778,9 @@ export class Settings {
 
 	async #loadProjectSettings(): Promise<RawSettings> {
 		try {
-			const result = await loadCapability(settingsCapability.id, { cwd: this.#cwd });
+			const result = await loadCapability(settingsCapability.id, {
+				cwd: this.#cwd,
+			});
 			let merged: RawSettings = {};
 			for (const item of result.items as SettingsCapabilityItem[]) {
 				if (item.level === "project") {
@@ -854,7 +862,9 @@ export class Settings {
 		if (migrated && Object.keys(settings).length > 0) {
 			try {
 				await Bun.write(this.#configPath, YAML.stringify(settings, null, 2));
-				logger.debug("Settings: migrated to config.yml", { path: this.#configPath });
+				logger.debug("Settings: migrated to config.yml", {
+					path: this.#configPath,
+				});
 			} catch {}
 		}
 	}
@@ -1474,14 +1484,20 @@ const SETTING_HOOKS: Partial<Record<SettingPath, SettingHook<any>>> = {
 	symbolPreset: value => {
 		if (typeof value === "string" && (value === "unicode" || value === "nerd" || value === "ascii")) {
 			setSymbolPreset(value).catch(err => {
-				logger.warn("Settings: symbolPreset hook failed", { preset: value, error: String(err) });
+				logger.warn("Settings: symbolPreset hook failed", {
+					preset: value,
+					error: String(err),
+				});
 			});
 		}
 	},
 	colorBlindMode: value => {
 		if (typeof value === "boolean") {
 			setColorBlindMode(value).catch(err => {
-				logger.warn("Settings: colorBlindMode hook failed", { enabled: value, error: String(err) });
+				logger.warn("Settings: colorBlindMode hook failed", {
+					enabled: value,
+					error: String(err),
+				});
 			});
 		}
 	},
@@ -1505,6 +1521,11 @@ const SETTING_HOOKS: Partial<Record<SettingPath, SettingHook<any>>> = {
 			logger.warn("Settings: worktree.base must be an absolute or ~-relative path; ignoring", { value: dir });
 		} else if (!dir) {
 			setWorktreesDir(undefined);
+		}
+	},
+	"display.markdownLinkUrlMode": value => {
+		if (value === "full" || value === "short") {
+			setMarkdownLinkUrlMode(value);
 		}
 	},
 };

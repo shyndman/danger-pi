@@ -4,7 +4,7 @@ changelog:
   exclude:
     - ./packages/catalog/src/models.json
 rebase:
-  continue_check: bun fix
+  continue_check: bun fix:ts && bun check:ts
 ---
 
 This is a fork. When writing new features you should endeavor to alter upstream-owned files as little as possible, to minimize future conflict.
@@ -41,6 +41,9 @@ This fork adds the following feature areas on top of upstream:
 - Fork-local Codex account selection: keep reusing a still-usable sticky pin to avoid cache churn; when a new pin is needed, prefer Spark/Pro accounts first, then choose the non-exhausted account whose long window renews soonest; fail fast if Codex ranking data is missing so regressions surface immediately.
 - Codex affinity and cache-observability logging
 - Fork-local assistant token line in interactive mode: when `display.showTokenUsage` is enabled, assistant messages show dim input/output counts, then a `\uf49b` cache segment with explicit cached-token count including `0` and hit/miss tinting, then a trailing `` elapsed segment derived from assistant-message timestamps in compact `d/h/m/s` form; zero-cache responses tint both cache and elapsed segments as misses so the line stays visually consistent
+- Fork-local explicit markdown link suffix mode: `display.markdownLinkUrlMode=full` keeps the visible `([url])` suffix for `[text](url)` links, while `short` collapses HTTPS suffixes to the hostname (dropping `https://`, `www.`, and path/query/fragment) and renders plain `http://` suffixes in red as a warning; bare autolinks and OSC-8 targets stay unchanged
+- Fork-local hidden message wrap-width setting: `omp config set display.messageWrapWidth <cols>` caps user/assistant chat-message wrap width without adding a `/settings` control; it defaults to `100`, user-message backgrounds still paint full width, and `0` keeps the upstream full-width behavior
+- Fork-local markdown list hanging indent: soft-wrapped list items continue under their bullet/number prefix instead of restarting at column 0
 - Native shell interpolation in rendered command and skill bodies
 
 ### Supporting platform and tooling changes
