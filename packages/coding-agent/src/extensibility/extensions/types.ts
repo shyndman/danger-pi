@@ -545,6 +545,12 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 		theme: Theme,
 		args?: Static<TParams>,
 	) => Component;
+
+	/** If true, hide the call renderer once a result exists and render only the result surface. */
+	mergeCallAndResult?: boolean;
+
+	/** Render without the default success/pending background box. */
+	inline?: boolean;
 }
 
 // ============================================================================

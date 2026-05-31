@@ -2,25 +2,31 @@ import { afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AssistantMessage, Usage } from "@oh-my-pi/pi-ai";
+import type { AgentTool } from "@oh-my-pi/pi-agent-core";
+import { matchesKey, type TUI } from "@oh-my-pi/pi-tui";
 import { Settings } from "../src/config/settings";
 import {
 	createPagerModeExtension,
 	PAGER_EXIT_CUSTOM_TYPE,
+	PAGER_INDEX_CUSTOM_TYPE,
+	PAGER_INDEX_TOOL_NAME,
 	PAGER_NEXT_CUSTOM_TYPE,
 	PAGER_STATUS_KEY,
 	pagerExitRenderer,
-	parsePagerIndexContent,
 	reconstructPagerState,
 } from "../src/danger-pi/pager-mode";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	ExtensionShortcut,
 	ExtensionUIContext,
 	MessageRenderer,
 	RegisteredCommand,
+	ToolDefinition,
+	ToolRenderResultOptions,
 } from "../src/extensibility/extensions";
+import { ToolExecutionComponent } from "../src/modes/components/tool-execution";
 import { theme as activeTheme, getThemeByName, setThemeInstance } from "../src/modes/theme/theme";
 import { createAgentSession } from "../src/sdk";
 import type { SessionEntry } from "../src/session/session-entries";
@@ -35,38 +41,8 @@ function installTestTheme(): void {
 	setThemeInstance(testTheme);
 }
 
-const usage = (): Usage => ({
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-	totalTokens: 0,
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-});
-
-function createAssistantMessage(text: string): AssistantMessage {
-	return {
-		role: "assistant",
-		content: [{ type: "text", text }],
-		api: "mock",
-		provider: "mock",
-		model: "mock-model",
-		usage: usage(),
-		stopReason: "stop",
-		timestamp: Date.now(),
-	};
-}
-
-function pagerIndex(workflow: string, pages: string[]): string {
-	return [
-		`<pager-index title="${workflow}">`,
-		...pages.map((page, index) => `${index + 1}. ${page}`),
-		`</pager-index>`,
-	].join("\n");
-}
-
-function appendPagerIndex(sessionManager: SessionManager, workflow: string, pages: string[]): string {
-	return sessionManager.appendMessage(createAssistantMessage(pagerIndex(workflow, pages)));
+function appendPagerIndexState(sessionManager: SessionManager, title: string, pages: string[]): string {
+	return sessionManager.appendCustomEntry(PAGER_INDEX_CUSTOM_TYPE, { title, pages });
 }
 
 interface SentMessageCall {
@@ -77,7 +53,12 @@ interface SentMessageCall {
 		details?: unknown;
 		attribution?: string;
 	};
-	options: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" } | undefined;
+	options:
+		| {
+				triggerTurn?: boolean;
+				deliverAs?: "steer" | "followUp" | "nextTurn";
+		  }
+		| undefined;
 }
 
 interface StatusRecord {
@@ -90,13 +71,20 @@ interface NotificationRecord {
 	type: "info" | "warning" | "error" | undefined;
 }
 
+function renderComponent(component: { render(width: number): readonly string[] } | undefined): string {
+	return Bun.stripANSI(component?.render(120).join("\n") ?? "");
+}
+
 function createPagerHarness(sessionManager: SessionManager = SessionManager.inMemory()) {
 	const commands = new Map<string, RegisteredCommand>();
 	const renderers = new Map<string, MessageRenderer>();
+	const tools = new Map<string, ToolDefinition>();
+	const shortcuts = new Map<string, ExtensionShortcut>();
 	const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => Promise<void> | void>>();
 	const sentMessages: SentMessageCall[] = [];
 	const statuses: StatusRecord[] = [];
 	const notifications: NotificationRecord[] = [];
+	let idle = true;
 
 	const ui = {
 		select: async () => undefined,
@@ -137,7 +125,7 @@ function createPagerHarness(sessionManager: SessionManager = SessionManager.inMe
 		sessionManager,
 		modelRegistry: undefined,
 		model: undefined,
-		isIdle: () => true,
+		isIdle: () => idle,
 		abort: () => {},
 		hasPendingMessages: () => false,
 		shutdown: () => {},
@@ -157,8 +145,20 @@ function createPagerHarness(sessionManager: SessionManager = SessionManager.inMe
 		registerMessageRenderer<T = unknown>(customType: string, renderer: MessageRenderer<T>): void {
 			renderers.set(customType, renderer as MessageRenderer);
 		},
+		registerTool(tool: ToolDefinition): void {
+			tools.set(tool.name, tool);
+		},
+		registerShortcut(
+			shortcut: ExtensionShortcut["shortcut"],
+			options: Omit<ExtensionShortcut, "shortcut" | "extensionPath">,
+		): void {
+			shortcuts.set(shortcut, { shortcut, extensionPath: "pager-mode.test", ...options });
+		},
 		sendMessage(message: SentMessageCall["message"], options?: SentMessageCall["options"]): void {
 			sentMessages.push({ message, options });
+		},
+		appendEntry(customType: string, data?: unknown): void {
+			sessionManager.appendCustomEntry(customType, data);
 		},
 	} as unknown as ExtensionAPI;
 
@@ -202,38 +202,24 @@ function createPagerHarness(sessionManager: SessionManager = SessionManager.inMe
 		renderers,
 		sentMessages,
 		sessionManager,
+		setIdle: (nextIdle: boolean) => {
+			idle = nextIdle;
+		},
+		shortcuts,
 		statuses,
+		tools,
 	};
 }
 
-describe("pager-mode parser and reconstruction", () => {
-	it("parses a valid pager index block", () => {
-		expect(
-			parsePagerIndexContent(
-				[
-					pagerIndex("Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]),
-					"Other trailing text",
-				].join("\n\n"),
-			),
-		).toEqual({
-			workflow: "Pebble v3 Tuning",
-			pages: ["High-Pass Filtering", "Equalizer Adjustments"],
-		});
-	});
-
-	it("rejects malformed pager index blocks", () => {
-		expect(parsePagerIndexContent(`<pager-index title="Broken">\n1. First\n3. Third\n</pager-index>`)).toBeNull();
-		expect(parsePagerIndexContent(`<pager-index title="Broken">\n- First\n- Second\n</pager-index>`)).toBeNull();
-	});
-
-	it("reconstructs the active page by walking backward over the branch", () => {
+describe("pager-mode reconstruction", () => {
+	it("reconstructs the active page from persisted pager state plus pager-next messages", () => {
 		const sessionManager = SessionManager.inMemory();
-		appendPagerIndex(sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
+		appendPagerIndexState(sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
 		sessionManager.appendCustomMessageEntry(PAGER_NEXT_CUSTOM_TYPE, "next", true, undefined, "user");
 
 		expect(reconstructPagerState(sessionManager.getBranch())).toEqual({
 			mode: "page",
-			workflow: "Pebble v3 Tuning",
+			title: "Pebble v3 Tuning",
 			pages: ["High-Pass Filtering", "Equalizer Adjustments"],
 			pageCount: 2,
 			pageOrdinal: 1,
@@ -241,7 +227,7 @@ describe("pager-mode parser and reconstruction", () => {
 		});
 	});
 
-	it("ignores stray pager control messages with no reachable index", () => {
+	it("ignores stray pager control messages with no reachable pager index state", () => {
 		const branch = [
 			{
 				type: "custom_message",
@@ -259,7 +245,7 @@ describe("pager-mode parser and reconstruction", () => {
 
 	it("treats next beyond the final page as closed pager state", () => {
 		const sessionManager = SessionManager.inMemory();
-		appendPagerIndex(sessionManager, "Solo", ["Only Page"]);
+		appendPagerIndexState(sessionManager, "Solo", ["Only Page"]);
 		sessionManager.appendCustomMessageEntry(PAGER_NEXT_CUSTOM_TYPE, "next", true, undefined, "user");
 		sessionManager.appendCustomMessageEntry(PAGER_NEXT_CUSTOM_TYPE, "next", true, undefined, "user");
 
@@ -267,11 +253,120 @@ describe("pager-mode parser and reconstruction", () => {
 	});
 });
 
-describe("pager-mode commands and renderers", () => {
-	it("emits a visible pager-next message, renders it compactly, and advances status immediately", async () => {
+describe("pager_index tool flow", () => {
+	it("stores pager state, queues a hidden next-turn request, and updates status immediately", async () => {
+		const harness = createPagerHarness();
+		const tool = harness.tools.get(PAGER_INDEX_TOOL_NAME);
+		if (!tool) throw new Error("Missing pager_index tool");
+
+		const result = await tool.execute(
+			"tool-1",
+			{ title: "Pager Tool Flow", pages: ["Proposed flow", "Visuals", "Implementation"] },
+			undefined,
+			undefined,
+			harness.baseContext,
+		);
+
+		expect(result.content).toEqual([
+			{
+				type: "text",
+				text: "Pager index stored. The runtime already queued the first page request for the next turn. End this response now.",
+			},
+		]);
+		expect(harness.sentMessages).toHaveLength(1);
+		expect(harness.sentMessages[0]).toMatchObject({
+			message: {
+				customType: PAGER_NEXT_CUSTOM_TYPE,
+				display: false,
+				attribution: "user",
+				details: {
+					title: "Pager Tool Flow",
+					previousTitle: "Index",
+					currentTitle: "Proposed flow",
+					nextTitle: "Visuals",
+					pageOrdinal: 1,
+					pageCount: 3,
+				},
+			},
+			options: { triggerTurn: true, deliverAs: "nextTurn" },
+		});
+		expect(harness.latestStatus()).toBe("[1/3] Proposed flow");
+
+		expect(reconstructPagerState(harness.sessionManager.getBranch())).toEqual({
+			mode: "index",
+			title: "Pager Tool Flow",
+			pages: ["Proposed flow", "Visuals", "Implementation"],
+			pageCount: 3,
+		});
+	});
+
+	it("renders a compact index control for pager_index results", async () => {
 		installTestTheme();
 		const harness = createPagerHarness();
-		appendPagerIndex(harness.sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
+		const tool = harness.tools.get(PAGER_INDEX_TOOL_NAME);
+		if (!tool) throw new Error("Missing pager_index tool");
+
+		const result = await tool.execute(
+			"tool-1",
+			{ title: "Pager Tool Flow", pages: ["Proposed flow", "Visuals"] },
+			undefined,
+			undefined,
+			harness.baseContext,
+		);
+		const renderOptions: ToolRenderResultOptions = { expanded: true, isPartial: false };
+		const rendered = renderComponent(
+			tool.renderResult?.(result, renderOptions, activeTheme, {
+				title: "Pager Tool Flow",
+				pages: ["Proposed flow", "Visuals"],
+			}),
+		);
+
+		expect(rendered).toContain("Pager Tool Flow");
+		expect(rendered).toContain("2 pages");
+		expect(rendered).toContain("1. Proposed flow");
+		expect(rendered).toContain("2. Visuals");
+	});
+
+	it("renders a single pager index component after the tool result lands", async () => {
+		installTestTheme();
+		const harness = createPagerHarness();
+		const tool = harness.tools.get(PAGER_INDEX_TOOL_NAME);
+		if (!tool) throw new Error("Missing pager_index tool");
+		const renderableTool = tool as unknown as AgentTool;
+
+		const component = new ToolExecutionComponent(
+			PAGER_INDEX_TOOL_NAME,
+			{ title: "Pager Tool Flow", pages: ["Proposed flow", "Visuals"] },
+			{},
+			renderableTool,
+			{ requestRender() {} } as TUI,
+			harness.sessionManager.getCwd(),
+		);
+		const before = renderComponent(component);
+		expect(before.match(/Pager Tool Flow/g)?.length ?? 0).toBe(1);
+
+		const result = await tool.execute(
+			"tool-1",
+			{ title: "Pager Tool Flow", pages: ["Proposed flow", "Visuals"] },
+			undefined,
+			undefined,
+			harness.baseContext,
+		);
+		component.updateResult(result, false);
+
+		const after = renderComponent(component);
+		expect(after.match(/Pager Tool Flow/g)?.length ?? 0).toBe(1);
+	});
+});
+
+describe("pager-mode commands, shortcuts, and renderers", () => {
+	it("emits a visible pager-next message, renders the page-turn copy, and advances status immediately", async () => {
+		installTestTheme();
+		const harness = createPagerHarness();
+		appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
+			"High-Pass Filtering",
+			"Equalizer Adjustments",
+		]);
 
 		const command = harness.commands.get("pager:next");
 		if (!command) throw new Error("Missing pager:next command");
@@ -284,7 +379,7 @@ describe("pager-mode commands and renderers", () => {
 				display: true,
 				attribution: "user",
 				details: {
-					workflow: "Pebble v3 Tuning",
+					title: "Pebble v3 Tuning",
 					previousTitle: "Index",
 					currentTitle: "High-Pass Filtering",
 					nextTitle: "Equalizer Adjustments",
@@ -294,34 +389,77 @@ describe("pager-mode commands and renderers", () => {
 			},
 			options: { triggerTurn: true },
 		});
-		expect(typeof harness.sentMessages[0]?.message.content).toBe("string");
-		expect(String(harness.sentMessages[0]?.message.content)).toContain("<system-notice>");
-		expect(String(harness.sentMessages[0]?.message.content)).toContain("Write the current page now.");
 		expect(harness.latestStatus()).toBe("[1/2] High-Pass Filtering");
 
 		const renderer = harness.renderers.get(PAGER_NEXT_CUSTOM_TYPE);
 		if (!renderer) throw new Error("Missing pager-next renderer");
-		const component = renderer(
-			{
-				role: "custom",
-				customType: PAGER_NEXT_CUSTOM_TYPE,
-				content: "ignored",
-				display: true,
-				details: harness.sentMessages[0]?.message.details,
-				timestamp: Date.now(),
-			},
-			{ expanded: true },
-			activeTheme,
+		const rendered = renderComponent(
+			renderer(
+				{
+					role: "custom",
+					customType: PAGER_NEXT_CUSTOM_TYPE,
+					content: "ignored",
+					display: true,
+					details: harness.sentMessages[0]?.message.details,
+					timestamp: Date.now(),
+				},
+				{ expanded: true },
+				activeTheme,
+			),
 		);
-		const rendered = Bun.stripANSI(component?.render(120).join("\n") ?? "");
-		expect(rendered).toContain("Paging Next:");
-		expect(rendered).toContain("Index -> High-Pass Filtering");
+		expect(rendered).toContain("Page Turn");
+		expect(rendered).toContain("Now viewing High-Pass Filtering");
+		expect(rendered).not.toContain("Paging Next:");
+	});
+
+	it("uses Ctrl+J to trigger the same visible pager-next action when idle", () => {
+		const harness = createPagerHarness();
+		appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
+			"High-Pass Filtering",
+			"Equalizer Adjustments",
+		]);
+		const shortcut = harness.shortcuts.get("ctrl+j");
+		if (!shortcut) throw new Error("Missing Ctrl+J pager shortcut");
+
+		shortcut.handler(harness.baseContext);
+
+		expect(harness.sentMessages).toHaveLength(1);
+		expect(harness.sentMessages[0]?.message.customType).toBe(PAGER_NEXT_CUSTOM_TYPE);
+		expect(harness.sentMessages[0]?.message.display).toBe(true);
+		expect(harness.latestStatus()).toBe("[1/2] High-Pass Filtering");
+	});
+
+	it("uses a Ctrl+J key sequence that stays distinct from Enter", () => {
+		expect(matchesKey("\u001b[106;5u", "ctrl+j")).toBe(true);
+		expect(matchesKey("\u001b[106;5u", "enter")).toBe(false);
+	});
+
+	it("does not page forward from Ctrl+J while a response is still running", () => {
+		const harness = createPagerHarness();
+		appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
+			"High-Pass Filtering",
+			"Equalizer Adjustments",
+		]);
+		harness.setIdle(false);
+		const shortcut = harness.shortcuts.get("ctrl+j");
+		if (!shortcut) throw new Error("Missing Ctrl+J pager shortcut");
+
+		shortcut.handler(harness.baseContext);
+
+		expect(harness.sentMessages).toHaveLength(0);
+		expect(harness.notifications).toContainEqual({
+			message: "Wait for the current response to finish before turning the page",
+			type: "info",
+		});
 	});
 
 	it("emits a visible pager-exit message without starting another turn", async () => {
 		installTestTheme();
 		const harness = createPagerHarness();
-		appendPagerIndex(harness.sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
+		appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
+			"High-Pass Filtering",
+			"Equalizer Adjustments",
+		]);
 
 		const command = harness.commands.get("pager:exit");
 		if (!command) throw new Error("Missing pager:exit command");
@@ -333,32 +471,33 @@ describe("pager-mode commands and renderers", () => {
 				customType: PAGER_EXIT_CUSTOM_TYPE,
 				display: true,
 				attribution: "user",
-				details: { workflow: "Pebble v3 Tuning" },
+				details: { title: "Pebble v3 Tuning" },
 			},
 			options: undefined,
 		});
 		expect(harness.latestStatus()).toBeUndefined();
 
-		const component = pagerExitRenderer(
-			{
-				role: "custom",
-				customType: PAGER_EXIT_CUSTOM_TYPE,
-				content: "ignored",
-				display: true,
-				details: { workflow: "Pebble v3 Tuning" },
-				timestamp: Date.now(),
-			},
-			{ expanded: true },
-			activeTheme,
+		const rendered = renderComponent(
+			pagerExitRenderer(
+				{
+					role: "custom",
+					customType: PAGER_EXIT_CUSTOM_TYPE,
+					content: "ignored",
+					display: true,
+					details: { title: "Pebble v3 Tuning" },
+					timestamp: Date.now(),
+				},
+				{ expanded: true },
+				activeTheme,
+			),
 		);
-		const rendered = Bun.stripANSI(component?.render(120).join("\n") ?? "");
-		expect(rendered).toContain("Paging Exit:");
+		expect(rendered).toContain("Paging Exit");
 		expect(rendered).toContain("Now leaving Pebble v3 Tuning");
 	});
 
 	it("treats pager:next on the final page as exit", async () => {
 		const harness = createPagerHarness();
-		appendPagerIndex(harness.sessionManager, "Solo", ["Only Page"]);
+		appendPagerIndexState(harness.sessionManager, "Solo", ["Only Page"]);
 		harness.sessionManager.appendCustomMessageEntry(PAGER_NEXT_CUSTOM_TYPE, "next", true, undefined, "user");
 
 		const command = harness.commands.get("pager:next");
@@ -373,21 +512,21 @@ describe("pager-mode commands and renderers", () => {
 });
 
 describe("pager-mode status synchronization", () => {
-	it("activates status from an assistant index message on message_end", async () => {
+	it("activates status from persisted pager state on session_start", async () => {
 		const harness = createPagerHarness();
-		const message = createAssistantMessage(
-			pagerIndex("Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]),
-		);
-		harness.sessionManager.appendMessage(message);
+		appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
+			"High-Pass Filtering",
+			"Equalizer Adjustments",
+		]);
 
-		await harness.emit("message_end", { type: "message_end", message });
+		await harness.emit("session_start", { type: "session_start" });
 
 		expect(harness.latestStatus()).toBe("[0/2] Pebble v3 Tuning: Index");
 	});
 
 	it("keeps status aligned with the branch after next, exit, and leaf rewinds", async () => {
 		const harness = createPagerHarness();
-		const indexId = appendPagerIndex(harness.sessionManager, "Pebble v3 Tuning", [
+		const indexId = appendPagerIndexState(harness.sessionManager, "Pebble v3 Tuning", [
 			"High-Pass Filtering",
 			"Equalizer Adjustments",
 		]);
@@ -417,6 +556,43 @@ describe("pager-mode status synchronization", () => {
 		await harness.emit("session_tree", { type: "session_tree", oldLeafId: exitId, newLeafId: nextId });
 		expect(harness.latestStatus()).toBe("[1/2] High-Pass Filtering");
 	});
+
+	it("keeps the active page status when pager-next ends before branch persistence catches up", async () => {
+		const harness = createPagerHarness();
+		const tool = harness.tools.get(PAGER_INDEX_TOOL_NAME);
+		if (!tool) throw new Error("Missing pager_index tool");
+
+		await tool.execute(
+			"tool-1",
+			{ title: "Three Dog Concepts", pages: ["Working Dog", "Companion Dog", "Mythic Dog"] },
+			undefined,
+			undefined,
+			harness.baseContext,
+		);
+
+		const nextMessage = harness.sentMessages[0]?.message;
+		if (!nextMessage) throw new Error("Missing queued pager-next message");
+
+		await harness.emit("message_end", {
+			type: "message_end",
+			message: {
+				role: "custom",
+				customType: PAGER_NEXT_CUSTOM_TYPE,
+				content: nextMessage.content,
+				display: nextMessage.display,
+				details: nextMessage.details,
+				timestamp: Date.now(),
+			},
+		});
+
+		expect(harness.latestStatus()).toBe("[1/3] Working Dog");
+		expect(reconstructPagerState(harness.sessionManager.getBranch())).toEqual({
+			mode: "index",
+			title: "Three Dog Concepts",
+			pages: ["Working Dog", "Companion Dog", "Mythic Dog"],
+			pageCount: 3,
+		});
+	});
 });
 
 describe("pager-mode built-in loading", () => {
@@ -428,7 +604,7 @@ describe("pager-mode built-in loading", () => {
 		}
 	});
 
-	it("loads pager mode into createAgentSession and refreshes status on session_start", async () => {
+	it("loads pager mode into createAgentSession with tool, shortcut, renderers, commands, and status refresh", async () => {
 		const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pager-mode-"));
 		tempDirs.push(tempDir);
 		const cwd = path.join(tempDir, "project");
@@ -437,7 +613,7 @@ describe("pager-mode built-in loading", () => {
 		fs.mkdirSync(agentDir, { recursive: true });
 
 		const sessionManager = SessionManager.inMemory(cwd);
-		appendPagerIndex(sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
+		appendPagerIndexState(sessionManager, "Pebble v3 Tuning", ["High-Pass Filtering", "Equalizer Adjustments"]);
 		const statuses: StatusRecord[] = [];
 
 		const { session } = await createAgentSession({
@@ -516,6 +692,8 @@ describe("pager-mode built-in loading", () => {
 			const commandNames = runner.getRegisteredCommands().map(command => command.name);
 			expect(commandNames).toContain("pager:next");
 			expect(commandNames).toContain("pager:exit");
+			expect(runner.getAllRegisteredTools().some(tool => tool.definition.name === PAGER_INDEX_TOOL_NAME)).toBe(true);
+			expect(runner.getShortcuts().has("ctrl+j")).toBe(true);
 			expect(runner.getMessageRenderer(PAGER_NEXT_CUSTOM_TYPE)).toBeDefined();
 			expect(runner.getMessageRenderer(PAGER_EXIT_CUSTOM_TYPE)).toBeDefined();
 

@@ -1,30 +1,33 @@
-## 1. Pager parsing and reconstruction core
-- [x] 1.1 Add fork-owned pager-mode helpers under `packages/coding-agent/src/danger-pi/` that parse assistant `<pager-index>` pages, extract workflow/page titles from ordered Markdown lists, and reconstruct branch-local pager state by walking backward over assistant index pages plus `pager-next` / `pager-exit` custom messages.
-- [x] 1.1a Verify parser/reconstruction behavior with focused tests covering valid index parsing, malformed index rejection, backward-walk reconstruction, ignored stray events, and `next`-on-final-page collapsing to closed pager state; capture `bun test` output for the targeted file(s).
+## 1. Tool-driven pager index
+- [x] 1.1 Add fork-owned `pager_index` under `packages/coding-agent/src/danger-pi/` with structured `{ title, pages }` input.
+- [x] 1.1a Persist pager index state as a hidden `custom` entry instead of parsing assistant `<pager-index>` text.
+- [x] 1.1b Verify tool behavior with focused tests covering state persistence, immediate status update, and hidden next-turn queuing.
 
-## 2. Pager commands and transcript protocol
+## 2. Pager commands, shortcut, and transcript protocol
+- [x] 2.1 Keep `/pager:next` and `/pager:exit` as fork-owned extension commands backed by visible `custom_message` entries.
+- [x] 2.1a Add `Ctrl+J` as the idle pager-next shortcut through the extension shortcut API.
+- [x] 2.1b Verify visible next/exit behavior, final-page exit behavior, and shortcut dispatch with focused tests.
 
-- [x] 2.1 Implement `/pager:next` and `/pager:exit` as fork-owned extension commands that emit visible `custom_message` entries via `sendMessage(..., { triggerTurn?: boolean })`, use the locked `system-notice` payloads for LLM-visible control text, special-render `Paging Next` / `Paging Exit`, and trigger the next assistant page only from `/pager:next`.
-- [x] 2.1a Verify command behavior with targeted tests covering custom-message payload shape, renderer labeling, immediate status target selection for `/pager:next`, no follow-up turn for `/pager:exit`, and final-page `/pager:next` behaving like exit; capture `bun test` output for the targeted file(s).
-
-## 3. Status synchronization and session navigation hooks
-
-- [x] 3.1 Wire pager-mode status refresh so keyed status is derived from reconstructed state on `session_start`, `session_switch`, `session_branch`, same-file `session_tree` rewinds, assistant index-message arrival, `/pager:next`, and `/pager:exit`, using the exact display forms `[0/{n}] {title}: Index` and `[{i}/{n}] {page_title}`.
-- [x] 3.1a Verify status synchronization with targeted tests covering initial activation from an index page, immediate post-`next` status advancement, status clearing on exit, and reconstruction after navigating onto another branch/leaf; capture `bun test` output for the targeted file(s).
+## 3. Rendering and status
+- [x] 3.1 Render pager index through the tool-rendering path as a compact inline control.
+- [x] 3.1a Restyle visible pager-next to show italic `Page Turn` plus `Now viewing {page title}` with bold page title.
+- [x] 3.1b Keep keyed pager status derived from reconstructed state across start, rewind, branch, and exit flows.
 
 ## 4. Built-in extension wiring and interactive evaluation
-
-- [x] 4.1 Wire pager-mode into the fork's built-in inline-extension load path in `packages/coding-agent/src/sdk.ts` so interactive sessions get the feature automatically without user configuration, keeping the implementation concentrated in `packages/coding-agent/src/danger-pi/`.
-- [x] 4.1a Verify built-in loading with a focused session-initialization test that proves pager-mode registers its commands/renderers/status hooks when OMP starts; capture `bun test` output for the targeted file(s).
-- [ ] 4.2 (HUMAN_REQUIRED) Run an interactive OMP session with a sample pager workflow, confirm the transcript rendering and keyed status are readable during index, next, branch rewind, and exit flows, and record any follow-up UX adjustments needed before broad use.
+- [x] 4.1 Keep pager mode wired into the fork's built-in inline-extension load path in `packages/coding-agent/src/sdk.ts`.
+- [x] 4.1a Verify built-in loading with a focused session-initialization test covering tool, shortcut, commands, renderers, and status refresh.
+- [ ] 4.2 (HUMAN_REQUIRED) Run an interactive OMP session with a sample pager sequence, confirm the compact index / silent auto-next / visible user-driven next flow feels right, and record follow-up UX adjustments.
 
 ```mermaid
 graph LR
   1.1 --> 1.1a
-  1.1 --> 2.1
-  1.1 --> 3.1
+  1.1 --> 1.1b
+  1.1a --> 2.1
+  1.1a --> 3.1
   2.1 --> 2.1a
+  2.1 --> 2.1b
   3.1 --> 3.1a
+  3.1 --> 3.1b
   1.1 --> 4.1
   2.1 --> 4.1
   3.1 --> 4.1

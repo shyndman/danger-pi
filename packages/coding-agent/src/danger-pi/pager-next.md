@@ -1,5 +1,5 @@
 <system-notice>
-<pager-next workflow="{{workflow_attr}}" page="{{page}}" page-count="{{page_count}}">
+<pager-next title="{{title_attr}}" page="{{page}}" page-count="{{page_count}}">
 Pager state advanced.
 Previous: {{previous_title}}
 Current: {{current_title}}
