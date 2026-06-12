@@ -4707,6 +4707,10 @@ export const SETTINGS_SCHEMA = {
 			options: TINY_MEMORY_MODEL_OPTIONS,
 		},
 	},
+	"providers.imageOpenRouterModel": {
+		type: "string",
+		default: undefined,
+	},
 
 	"providers.kimiApiFormat": {
 		type: "enum",

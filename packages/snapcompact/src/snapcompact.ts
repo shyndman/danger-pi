@@ -51,6 +51,22 @@ import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import fileOperationsTemplate from "./prompts/file-operations.md" with { type: "text" };
 import snapcompactSummaryPrompt from "./prompts/snapcompact-summary.md" with { type: "text" };
 
+type SnapcompactSupportedCharsFn = (font: string, chars: string) => string;
+
+const nativeSnapcompactSupportedChars: SnapcompactSupportedCharsFn | undefined =
+	typeof snapcompactSupportedChars === "function" ? snapcompactSupportedChars : undefined;
+
+function fallbackSnapcompactSupportedChars(chars: readonly string[]): ReadonlySet<string> {
+	const supported = new Set<string>();
+	for (const ch of chars) {
+		const codePoint = ch.codePointAt(0);
+		if (codePoint !== undefined && codePoint >= 0x20 && codePoint <= 0x7e) {
+			supported.add(ch);
+		}
+	}
+	return supported;
+}
+
 // ============================================================================
 // Shapes
 // ============================================================================
@@ -1073,11 +1089,13 @@ function foldToAscii(ch: string): string | undefined {
 
 function renderableUnicodeChars(chars: readonly string[], font: Shape["font"] | undefined): ReadonlySet<string> {
 	if (chars.length === 0) return new Set();
+	if (!nativeSnapcompactSupportedChars) return fallbackSnapcompactSupportedChars(chars);
+
 	const text = chars.join("");
 	const primaryFont = font ?? "5x8";
-	const supported = new Set(snapcompactSupportedChars(primaryFont, text));
+	const supported = new Set(nativeSnapcompactSupportedChars(primaryFont, text));
 	if (primaryFont !== "silver") {
-		for (const ch of snapcompactSupportedChars("silver", text)) supported.add(ch);
+		for (const ch of nativeSnapcompactSupportedChars("silver", text)) supported.add(ch);
 	}
 	return supported;
 }
