@@ -172,7 +172,7 @@ function ensureInteractiveShellArgs(shell: string, args: string[]): string[] {
 		return args.map((arg, index) => (index === compactCommandIndex ? arg.replace("c", "ic") : arg));
 	}
 
-	return [...args, "-i"];
+	return [...args, "-ic"];
 }
 
 function quoteShellArg(value: string): string {
@@ -215,7 +215,18 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 	const minimizer = buildMinimizerOptions(settings.getGroup("shellMinimizer"));
 
 	const commandCwd = resolveShellCwd(options?.cwd);
-	const commandEnv = buildNonInteractiveEnv(options?.env);
+	const wrapsUserShell = options?.useUserShell === true && !bashShell;
+	const userShellEnv = wrapsUserShell ? { ...shellEnv, ...options?.env } : options?.env;
+	if (
+		wrapsUserShell &&
+		userShellEnv &&
+		needsInteractiveShellArg(shell) &&
+		userShellEnv.HOME &&
+		!userShellEnv.ZDOTDIR
+	) {
+		userShellEnv.ZDOTDIR = userShellEnv.HOME;
+	}
+	const commandEnv = buildNonInteractiveEnv(userShellEnv);
 
 	// Apply command prefix if configured
 	const prefixedCommand = prefix ? `${prefix} ${command}` : command;
@@ -435,7 +446,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 		return {
 			exitCode: winner.result.exitCode,
 			cancelled: false,
-			workingDir: winner.result.workingDir,
+			workingDir: winner.result.workingDir ?? commandCwd,
 			...(await sink.dump()),
 		};
 	} catch (err) {

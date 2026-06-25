@@ -45,6 +45,7 @@ This fork adds the following feature areas on top of upstream:
 - Fork-local hidden message wrap-width setting: `omp config set display.messageWrapWidth <cols>` caps user/assistant chat-message wrap width without adding a `/settings` control; it defaults to `100`, user-message backgrounds still paint full width, and `0` keeps the upstream full-width behavior
 - Fork-local markdown list hanging indent: soft-wrapped list items continue under their bullet/number prefix instead of restarting at column 0
 - Native shell interpolation in rendered command and skill bodies
+- Fork-local `OMP_AGENT_ID` shell env var: every command the `bash` tool runs (foreground, async job, PTY, and client-bridge terminal) gets `OMP_AGENT_ID` set to the invoking agent's unique tree-path id (`Main` at the root, dot-pathed like `Main.Anna.Worker` for nested subagents); injected last so it overrides any model-supplied value
 
 ### Supporting platform and tooling changes
 - Pre-commit blocks staged `CHANGELOG.md` files with `This is a fork. We do not modify CHANGELOG.md`

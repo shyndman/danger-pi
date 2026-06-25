@@ -16,6 +16,7 @@ import { InternalUrlRouter } from "../internal-urls";
 import { truncateToVisualLines } from "../modes/components/visual-truncate";
 import { highlightCode, type Theme } from "../modes/theme/theme";
 import bashDescription from "../prompts/tools/bash.md" with { type: "text" };
+import { MAIN_AGENT_ID } from "../registry/agent-registry";
 import type { ClientBridgeTerminalExitStatus, ClientBridgeTerminalOutput } from "../session/client-bridge";
 import { DEFAULT_MAX_BYTES, enforceInlineByteCap, streamTailUpdates, TailBuffer } from "../session/streaming-output";
 import { renderStatusLine } from "../tui";
@@ -51,6 +52,8 @@ export const BASH_DEFAULT_PREVIEW_LINES = DEFAULT_TERMINAL_PREVIEW_LINES;
 
 const BASH_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_AUTO_BACKGROUND_THRESHOLD_MS = 60_000;
+/** Env var exposing the invoking agent's unique tree-path id to every shell. */
+const OMP_AGENT_ID_ENV = "OMP_AGENT_ID";
 
 /**
  * Shape a shell command line for an ACP-conformant `terminal/create` request.
@@ -757,7 +760,7 @@ export class BashTool implements AgentTool<typeof bashSchemaBase | typeof bashSc
 			},
 		};
 		command = await expandInternalUrls(command, { ...internalUrlOptions, ensureLocalParentDirs: true });
-		const resolvedEnv = env
+		let resolvedEnv = env
 			? Object.fromEntries(
 					await Promise.all(
 						Object.entries(env).map(async ([key, value]) => [
@@ -771,6 +774,10 @@ export class BashTool implements AgentTool<typeof bashSchemaBase | typeof bashSc
 					),
 				)
 			: undefined;
+		// Stamp the invoking agent's unique tree-path id into every shell we run so
+		// commands can identify which agent (root "Main" or any nested subagent)
+		// spawned them. Injected last so it wins over any model-supplied override.
+		resolvedEnv = { ...resolvedEnv, [OMP_AGENT_ID_ENV]: this.session.getAgentId?.() ?? MAIN_AGENT_ID };
 
 		// Resolve protocol URLs (skill://, agent://, etc.) in extracted cwd.
 		if (cwd?.includes("://") || cwd?.includes("local:/")) {
