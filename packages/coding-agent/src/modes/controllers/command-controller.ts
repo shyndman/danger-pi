@@ -35,6 +35,7 @@ import { DynamicBorder } from "../../modes/components/dynamic-border";
 import { EvalExecutionComponent } from "../../modes/components/eval-execution";
 import { MoveOverlay, type MoveOverlayResult } from "../../modes/components/move-overlay";
 import { TranscriptBlock } from "../../modes/components/transcript-container";
+import { registerActiveComposerExecution } from "../../modes/composer-batch-controller";
 import { getMarkdownTheme, getSymbolTheme, theme } from "../../modes/theme/theme";
 import type { InteractiveModeContext } from "../../modes/types";
 import { computeContextBreakdown, renderContextUsage } from "../../modes/utils/context-usage";
@@ -42,7 +43,10 @@ import { buildHotkeysMarkdown } from "../../modes/utils/hotkeys-markdown";
 import { buildToolsMarkdown } from "../../modes/utils/tools-markdown";
 import type { AsyncJobSnapshotItem } from "../../session/agent-session";
 import type { AuthStorage, OAuthAccountIdentity } from "../../session/auth-storage";
+import type { DeferredBashExecution } from "../../session/bash-runner";
 import type { CompactMode } from "../../session/compact-modes";
+import type { ComposerBatchDraft } from "../../session/composer-batch";
+import type { DeferredPythonExecution } from "../../session/eval-runner";
 import type { NewSessionOptions } from "../../session/session-entries";
 import { formatShakeSummary, type ShakeMode, type ShakeResult } from "../../session/shake-types";
 import { formatActiveAccountLabel, limitMatchesActiveAccount } from "../../slash-commands/helpers/active-oauth-account";
@@ -1223,7 +1227,64 @@ export class CommandController {
 		}
 	}
 
-	async handleBashCommand(command: string, excludeFromContext = false): Promise<void> {
+	async #handleComposerBatchBash(
+		command: string,
+		excludeFromContext: boolean,
+		draft: ComposerBatchDraft,
+	): Promise<DeferredBashExecution> {
+		const component = new BashExecutionComponent(command, this.ctx.ui, excludeFromContext);
+		this.ctx.bashComponent = component;
+		this.ctx.pendingMessagesContainer.addChild(component);
+		const unregister = registerActiveComposerExecution(this.ctx.viewSession, component);
+		this.ctx.ui.requestRender();
+		try {
+			const execution = await this.ctx.viewSession.executeBash(command, chunk => component.appendOutput(chunk), {
+				excludeFromContext,
+				useUserShell: true,
+				pty: {
+					...bashPtyViewport(this.ctx.ui),
+					onChunk: chunk => component.appendPtyChunk(chunk),
+				},
+				delivery: "deferred",
+				timestamp: draft.timestamp,
+			});
+			const meta = outputMeta().truncationFromSummary(execution.result, { direction: "tail" }).get();
+			component.setComplete(execution.result.exitCode, execution.result.cancelled, {
+				output: execution.result.output,
+				truncation: meta?.truncation,
+			});
+			if (isPersistentShellCdCommand(command)) await this.#applyBashResultCwd(execution.result);
+			unregister();
+			return execution;
+		} catch (error) {
+			component.setComplete(undefined, false);
+			unregister();
+			this.ctx.pendingMessagesContainer.removeChild(component);
+			logger.error("Composer batch bash evaluation failed", {
+				sessionId: draft.sessionId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
+		} finally {
+			this.ctx.bashComponent = undefined;
+			this.ctx.ui.requestRender();
+		}
+	}
+
+	handleBashCommand(
+		command: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredBashExecution>;
+	handleBashCommand(command: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
+	async handleBashCommand(
+		command: string,
+		excludeFromContext = false,
+		destination: { kind: "session" } | { kind: "composerBatch"; draft: ComposerBatchDraft } = { kind: "session" },
+	): Promise<void | DeferredBashExecution> {
+		if (destination.kind === "composerBatch") {
+			return await this.#handleComposerBatchBash(command, excludeFromContext, destination.draft);
+		}
 		const isDeferred = this.ctx.session.isStreaming;
 		const shouldPersistCwd = isPersistentShellCdCommand(command);
 		if (isDeferred && shouldPersistCwd) {
@@ -1324,7 +1385,58 @@ export class CommandController {
 		await this.#moveInteractiveCwd(resolvedPath);
 	}
 
-	async handlePythonCommand(code: string, excludeFromContext = false): Promise<void> {
+	async #handleComposerBatchPython(
+		code: string,
+		excludeFromContext: boolean,
+		draft: ComposerBatchDraft,
+	): Promise<DeferredPythonExecution> {
+		const component = new EvalExecutionComponent(code, this.ctx.ui, excludeFromContext);
+		this.ctx.pythonComponent = component;
+		this.ctx.pendingMessagesContainer.addChild(component);
+		const unregister = registerActiveComposerExecution(this.ctx.viewSession, component);
+		this.ctx.ui.requestRender();
+		try {
+			const execution = await this.ctx.viewSession.executePython(code, chunk => component.appendOutput(chunk), {
+				excludeFromContext,
+				delivery: "deferred",
+				timestamp: draft.timestamp,
+			});
+			const meta = outputMeta().truncationFromSummary(execution.result, { direction: "tail" }).get();
+			component.setComplete(execution.result.exitCode, execution.result.cancelled, {
+				output: execution.result.output,
+				truncation: meta?.truncation,
+			});
+			unregister();
+			return execution;
+		} catch (error) {
+			component.setComplete(undefined, false);
+			unregister();
+			this.ctx.pendingMessagesContainer.removeChild(component);
+			logger.error("Composer batch Python evaluation failed", {
+				sessionId: draft.sessionId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
+		} finally {
+			this.ctx.pythonComponent = undefined;
+			this.ctx.ui.requestRender();
+		}
+	}
+
+	handlePythonCommand(
+		code: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredPythonExecution>;
+	handlePythonCommand(code: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
+	async handlePythonCommand(
+		code: string,
+		excludeFromContext = false,
+		destination: { kind: "session" } | { kind: "composerBatch"; draft: ComposerBatchDraft } = { kind: "session" },
+	): Promise<void | DeferredPythonExecution> {
+		if (destination.kind === "composerBatch") {
+			return await this.#handleComposerBatchPython(code, excludeFromContext, destination.draft);
+		}
 		const isDeferred = this.ctx.session.isStreaming;
 		this.ctx.pythonComponent = new EvalExecutionComponent(code, this.ctx.ui, excludeFromContext);
 

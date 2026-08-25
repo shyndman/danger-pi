@@ -9,6 +9,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/main";
 import type { SubmittedUserInput } from "@oh-my-pi/pi-coding-agent/modes/types";
 import type { CreateAgentSessionOptions } from "@oh-my-pi/pi-coding-agent/sdk";
+import { ComposerBatch } from "@oh-my-pi/pi-coding-agent/session/composer-batch";
 import { discoverTitleSystemPromptFile } from "@oh-my-pi/pi-coding-agent/system-prompt";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 
@@ -75,11 +76,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => false),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: false,
 		};
 		const input = createInput({ text: "resume now", started: true, synthetic: true });
@@ -97,11 +100,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => false),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: false,
 		};
 		const input = createInput();
@@ -119,11 +124,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => true),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: false,
 		};
 		const input = createInput({ text: "continue goal", customType: "goal-continuation" });
@@ -151,11 +158,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => true),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: false,
 		};
 		const input = createInput({ text: "loop prompt" });
@@ -171,11 +180,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => true),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: true,
 		};
 		const input = createInput({ text: "interrupt now", streamingBehavior: "steer" });
@@ -194,11 +205,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => true),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: true,
 		};
 		const input = createInput({ text: "continue goal", customType: "goal-continuation" });
@@ -224,11 +237,13 @@ describe("submitInteractiveInput", () => {
 			markPendingSubmissionStarted: vi.fn(() => true),
 			finishPendingSubmission: vi.fn(),
 			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
 			checkShutdownRequested: vi.fn(async () => {}),
 		};
 		const session = {
 			prompt: vi.fn(async () => true),
 			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {}),
 			isStreaming: true,
 		};
 		const input = createInput({ text: "loop prompt" });
@@ -239,5 +254,45 @@ describe("submitInteractiveInput", () => {
 		expect(session.promptCustomMessage).not.toHaveBeenCalled();
 		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 		expect(mode.showError).not.toHaveBeenCalled();
+	});
+
+	it("submits a prepared composer batch and finishes its restoration owner", async () => {
+		const mode = {
+			markPendingSubmissionStarted: vi.fn(() => true),
+			finishPendingSubmission: vi.fn(),
+			showError: vi.fn(),
+			updatePendingMessagesDisplay: vi.fn(),
+			checkShutdownRequested: vi.fn(async () => {}),
+		};
+		const sessionId = "interactive-batch";
+		const batch = new ComposerBatch(() => sessionId);
+		batch.stage({
+			draft: { sessionId, timestamp: 1, text: "batched", images: [], imageLinks: [] },
+			prepared: {
+				promptText: "batched",
+				images: [],
+				messages: [{ role: "user", content: [{ type: "text", text: "batched" }], timestamp: 1 }],
+				modelVisible: true,
+			},
+		});
+		const dispatch = batch.take();
+		if (!dispatch) throw new Error("Expected a composer batch dispatch");
+		const finish = vi.fn();
+		const session = {
+			prompt: vi.fn(async () => true),
+			promptCustomMessage: vi.fn(async () => {}),
+			promptComposerBatch: vi.fn(async () => {
+				dispatch.accept();
+			}),
+			isStreaming: false,
+		};
+		const input = createInput({ composerBatch: { dispatch, finish } });
+
+		await submitInteractiveInput(mode, session, input);
+
+		expect(session.promptComposerBatch).toHaveBeenCalledWith(dispatch);
+		expect(session.prompt).not.toHaveBeenCalled();
+		expect(finish).toHaveBeenCalledTimes(1);
+		expect(mode.finishPendingSubmission).toHaveBeenCalledWith(input);
 	});
 });

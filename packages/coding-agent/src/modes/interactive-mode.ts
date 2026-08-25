@@ -109,7 +109,10 @@ import {
 	type ResolvedRoleModel,
 	SHUTDOWN_CONSOLIDATE_BUDGET_MS,
 } from "../session/agent-session";
+import type { DeferredBashExecution } from "../session/bash-runner";
 import type { CompactMode } from "../session/compact-modes";
+import type { ComposerBatchDraft } from "../session/composer-batch";
+import type { DeferredPythonExecution } from "../session/eval-runner";
 import type { ForeignSessionSource } from "../session/foreign-session-store";
 import { HistoryStorage } from "../session/history-storage";
 import { USER_INTERRUPT_LABEL } from "../session/messages";
@@ -180,6 +183,7 @@ import { stopSharedSpinnerTicker, type ToolExecutionHandle } from "./components/
 import { TranscriptContainer } from "./components/transcript-container";
 import type { LspServerInfo as WelcomeLspServerInfo } from "./components/welcome";
 import { Composer } from "./composer";
+import type { ComposerBatchSubmission } from "./composer-batch-controller";
 import { writeComposerWelcomeCache } from "./composer-cache";
 import { BtwController } from "./controllers/btw-controller";
 import { CleanseCommandController } from "./controllers/cleanse-command-controller";
@@ -1739,7 +1743,12 @@ export class InteractiveMode implements InteractiveModeContext {
 	}
 
 	#isAutoSubmitBlocked(): boolean {
-		return this.session.isStreaming || this.session.isCompacting || this.session.hasPostPromptWork;
+		return (
+			this.session.isStreaming ||
+			this.session.isCompacting ||
+			this.session.hasPostPromptWork ||
+			this.session.composerBatchCount > 0
+		);
 	}
 
 	#submitLoopPromptWhenReady(prompt: string): void {
@@ -1956,6 +1965,7 @@ export class InteractiveMode implements InteractiveModeContext {
 			customType?: string;
 			display?: boolean;
 			streamingBehavior?: "steer" | "followUp";
+			composerBatch?: ComposerBatchSubmission;
 		},
 		options?: { preserveDraft?: boolean },
 	): SubmittedUserInput {
@@ -1967,11 +1977,14 @@ export class InteractiveMode implements InteractiveModeContext {
 			display: input.display,
 			streamingBehavior: input.streamingBehavior,
 			cancelled: false,
+			composerBatch: input.composerBatch,
 			started: false,
 		};
 		this.#pendingSubmittedInput = submission;
 		this.#pendingSubmissionPreservesDraft = options?.preserveDraft === true;
-		if (!submission.customType) {
+		if (submission.composerBatch) {
+			this.clearOptimisticUserMessage();
+		} else if (!submission.customType) {
 			this.#resetGoalContinuationSuppression();
 			const imageCount = submission.images?.length ?? 0;
 			this.optimisticUserMessageSignature = `${submission.text}\u0000${imageCount}`;
@@ -5516,12 +5529,38 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.#observerRegistry.setMainSession(this.sessionManager.getSessionFile() ?? undefined);
 	}
 
-	handleBashCommand(command: string, excludeFromContext?: boolean): Promise<void> {
-		return this.#commandController.handleBashCommand(command, excludeFromContext);
+	handleBashCommand(
+		command: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredBashExecution>;
+	handleBashCommand(command: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
+	handleBashCommand(
+		command: string,
+		excludeFromContext?: boolean,
+		destination?: { kind: "session" } | { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<void | DeferredBashExecution> {
+		if (destination?.kind === "composerBatch") {
+			return this.#commandController.handleBashCommand(command, excludeFromContext ?? false, destination);
+		}
+		return this.#commandController.handleBashCommand(command, excludeFromContext, destination);
 	}
 
-	handlePythonCommand(code: string, excludeFromContext?: boolean): Promise<void> {
-		return this.#commandController.handlePythonCommand(code, excludeFromContext);
+	handlePythonCommand(
+		code: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredPythonExecution>;
+	handlePythonCommand(code: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
+	handlePythonCommand(
+		code: string,
+		excludeFromContext?: boolean,
+		destination?: { kind: "session" } | { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<void | DeferredPythonExecution> {
+		if (destination?.kind === "composerBatch") {
+			return this.#commandController.handlePythonCommand(code, excludeFromContext ?? false, destination);
+		}
+		return this.#commandController.handlePythonCommand(code, excludeFromContext, destination);
 	}
 
 	async handleMCPCommand(text: string): Promise<void> {

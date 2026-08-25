@@ -548,8 +548,12 @@ export class TurnRecovery {
 	}
 
 	/** Prompts after transient overlap with a prior agent run. */
-	promptAgentWithIdleRetry(messages: AgentMessage[], options?: { toolChoice?: ToolChoice }): Promise<void> {
-		return this.#promptAgentWithIdleRetry(messages, options);
+	promptAgentWithIdleRetry(
+		messages: AgentMessage[],
+		options?: { toolChoice?: ToolChoice },
+		callbacks?: { canStart?: () => boolean; onAccepted?: () => void },
+	): Promise<void> {
+		return this.#promptAgentWithIdleRetry(messages, options, callbacks);
 	}
 
 	/** Parses provider retry and rate-limit reset hints into a delay. */
@@ -2391,10 +2395,25 @@ export class TurnRecovery {
 		this.resolveRetry();
 	}
 
-	async #promptAgentWithIdleRetry(messages: AgentMessage[], options?: { toolChoice?: ToolChoice }): Promise<void> {
+	async #promptAgentWithIdleRetry(
+		messages: AgentMessage[],
+		options?: { toolChoice?: ToolChoice },
+		callbacks?: { canStart?: () => boolean; onAccepted?: () => void },
+	): Promise<void> {
 		const deadline = Date.now() + 30_000;
 		for (;;) {
 			try {
+				if (callbacks?.canStart?.() === false) {
+					throw new Error("Session changed before the queued composer batch could start");
+				}
+				if (this.#host.agent.state.isStreaming) {
+					if (Date.now() >= deadline) {
+						throw new Error("Timed out waiting for prior agent run to finish before prompting.");
+					}
+					await this.#host.agent.waitForIdle();
+					continue;
+				}
+				callbacks?.onAccepted?.();
 				await this.#host.agent.prompt(messages, options);
 				return;
 			} catch (err) {

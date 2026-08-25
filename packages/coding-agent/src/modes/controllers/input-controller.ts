@@ -14,6 +14,7 @@ import { TinyTitleDownloadProgressComponent } from "../../modes/components/tiny-
 import { ToolExecutionComponent } from "../../modes/components/tool-execution";
 import { TreeSelectorComponent } from "../../modes/components/tree-selector";
 import { chipLabel, compactImageMarkers, shiftImageMarkers } from "../../modes/composer-attachments";
+import { ComposerBatchController } from "../../modes/composer-batch-controller";
 import { expandEmoticons } from "../../modes/emoji-autocomplete";
 import { materializeImageReferenceLinks, setCachedImageDimensions } from "../../modes/image-references";
 import { createPromptActionAutocompleteProvider } from "../../modes/prompt-action-autocomplete";
@@ -21,6 +22,8 @@ import { parseQueueShorthand, splitQueuedMessages } from "../../modes/queue-inpu
 import { buildSkillCommandPrompt, isKnownSkillCommand } from "../../modes/skill-command";
 import type { InteractiveModeContext } from "../../modes/types";
 import manualContinuePrompt from "../../prompts/system/manual-continue.md" with { type: "text" };
+import type { AgentSession } from "../../session/agent-session";
+import type { ComposerBatchDraft } from "../../session/composer-batch";
 import { USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeBuiltinSlashCommand, lookupBuiltinSlashCommand } from "../../slash-commands/builtin-registry";
 import { parseSlashCommand } from "../../slash-commands/helpers/parse";
@@ -161,6 +164,8 @@ const LEFT_DOUBLE_TAP_MIN_GAP_MS = 40;
 const LEFT_DOUBLE_TAP_MAX_GAP_MS = 500;
 
 export class InputController {
+	readonly #composerBatchController: ComposerBatchController;
+
 	constructor(
 		private ctx: InteractiveModeContext,
 		/** Injectable clipboard reads so tests can drive paste flows without a real clipboard. */
@@ -173,7 +178,9 @@ export class InputController {
 			readText: readTextFromClipboard,
 			readMacFileUrls: readMacFileUrlsFromClipboard,
 		},
-	) {}
+	) {
+		this.#composerBatchController = new ComposerBatchController(ctx, parsePythonCommandInput);
+	}
 
 	/** Session-level title starts (user `/skill:` via promptCustomMessage) reuse this UI. */
 	notifyTitleGenerationStart(): void {
@@ -699,6 +706,56 @@ export class InputController {
 		return compacted.text.trim();
 	}
 
+	#takeComposerBatchDraft(target: AgentSession, text: string): ComposerBatchDraft {
+		const executionDraft = text.startsWith("!") || parsePythonCommandInput(text) !== undefined;
+		const images = executionDraft ? [] : [...this.ctx.editor.pendingImages];
+		const imageLinks = executionDraft ? [] : [...this.ctx.editor.pendingImageLinks];
+		this.ctx.editor.setText("");
+		if (!executionDraft) {
+			this.ctx.editor.pendingImages = [];
+			this.ctx.editor.pendingImageLinks = [];
+			this.ctx.editor.imageLinks = undefined;
+		}
+		if (text && !shouldSkipHistory(text)) this.ctx.editor.addToHistory(text);
+		return {
+			sessionId: target.sessionId,
+			timestamp: target.composerBatch.nextTimestamp(),
+			text,
+			images,
+			imageLinks,
+		};
+	}
+
+	async #submitComposerBatch(target: AgentSession, text: string): Promise<void> {
+		if (target.composerBatch.workCount > target.composerBatch.size) {
+			this.ctx.showStatus("Wait for the queued evaluation to finish.");
+			return;
+		}
+		const hasDraft = text.length > 0 || this.ctx.editor.pendingImages.length > 0;
+		const draft = hasDraft ? this.#takeComposerBatchDraft(target, text) : undefined;
+		const result = await this.#composerBatchController.prepareSubmission(target, draft);
+		if (result.kind !== "dispatch") return;
+		const composerBatch = this.#composerBatchController.createSubmission(target, result.dispatch);
+		if (result.dispatch.hasModelVisible) this.#maybeStartTitleGeneration(result.dispatch.turnText);
+		if (this.ctx.onInputCallback) {
+			this.ctx.onInputCallback(
+				this.ctx.startPendingSubmission({
+					text: result.dispatch.turnText,
+					images: [...result.dispatch.hookImages],
+					composerBatch,
+				}),
+			);
+			return;
+		}
+		try {
+			await target.promptComposerBatch(result.dispatch);
+		} catch (error) {
+			this.ctx.showError(error instanceof Error ? error.message : String(error));
+		} finally {
+			composerBatch.finish();
+		}
+	}
+
 	setupEditorSubmitHandler(): void {
 		this.ctx.editor.onSubmit = async (text: string) => {
 			text = this.#compactDraftImages(text.trim());
@@ -710,6 +767,10 @@ export class InputController {
 			// compaction queueing) is main-session-only.
 			if (this.ctx.focusedAgentId) {
 				await this.#submitToFocusedSession(text, "steer");
+				return;
+			}
+			if (this.ctx.session.composerBatchCount > 0) {
+				await this.#submitComposerBatch(this.ctx.session, text);
 				return;
 			}
 
@@ -1065,6 +1126,14 @@ export class InputController {
 	/** Submit editor text to the focused subagent session (chat-only focus policy). */
 	async #submitToFocusedSession(text: string, streamingBehavior: "steer" | "followUp"): Promise<void> {
 		const target = this.ctx.viewSession;
+		if (target.composerBatchCount > 0) {
+			if (text && (text.startsWith("/") || text.startsWith("!") || parsePythonCommandInput(text))) {
+				this.ctx.showStatus("Commands run in the main session — press ←← to return first");
+				return;
+			}
+			await this.#submitComposerBatch(target, text);
+			return;
+		}
 		const images = this.ctx.editor.pendingImages.length > 0 ? [...this.ctx.editor.pendingImages] : undefined;
 		const imageLinks =
 			images && this.ctx.editor.pendingImageLinks.length > 0 ? [...this.ctx.editor.pendingImageLinks] : undefined;
@@ -1211,6 +1280,11 @@ export class InputController {
 	}
 
 	handleDequeue(): void {
+		const batch = this.ctx.viewSession.composerBatch;
+		if (batch.workCount > batch.size) {
+			this.ctx.showStatus("Wait for the queued evaluation to finish before editing.");
+			return;
+		}
 		const restored = this.restoreQueuedMessagesToEditor();
 		if (restored === 0) {
 			this.ctx.showStatus("No queued messages to restore");
@@ -1430,6 +1504,24 @@ export class InputController {
 		const imageLinks =
 			images && this.ctx.editor.pendingImageLinks.length > 0 ? [...this.ctx.editor.pendingImageLinks] : undefined;
 		if (!text && !images) return;
+		const target = this.ctx.viewSession;
+		if (!target.isStreaming || target.composerBatchCount > 0) {
+			if (
+				this.ctx.focusedAgentId &&
+				text &&
+				(text.startsWith("/") || text.startsWith("!") || parsePythonCommandInput(text))
+			) {
+				this.ctx.showStatus("Commands run in the main session — press ←← to return first");
+				return;
+			}
+			if (target.composerBatch.workCount > target.composerBatch.size) {
+				this.ctx.showStatus("Wait for the queued evaluation to finish.");
+				return;
+			}
+			const draft = this.#takeComposerBatchDraft(target, text);
+			await this.#composerBatchController.queueDraft(target, draft);
+			return;
+		}
 
 		// Focused subagent session: follow-ups go to it; non-chat input is gated.
 		if (this.ctx.focusedAgentId) {
@@ -1513,6 +1605,22 @@ export class InputController {
 
 	restoreQueuedMessagesToEditor(options?: { abort?: boolean; currentText?: string }): number {
 		this.ctx.locallySubmittedUserSignatures.clear();
+		if (!options?.abort) {
+			const entry = this.ctx.viewSession.composerBatch.pop();
+			if (entry) {
+				const imageOffset = this.ctx.editor.pendingImages.length;
+				const queuedText = shiftImageMarkers(entry.draft.text, imageOffset);
+				const currentText = options?.currentText ?? this.ctx.editor.getText();
+				if (entry.draft.images.length > 0) {
+					this.ctx.editor.pendingImages.push(...entry.draft.images);
+					this.ctx.editor.pendingImageLinks.push(...entry.draft.imageLinks);
+					this.ctx.editor.imageLinks = this.ctx.editor.pendingImageLinks;
+				}
+				this.ctx.editor.setCollapsedText([queuedText, currentText].filter(text => text.trim()).join("\n\n"));
+				this.ctx.updatePendingMessagesDisplay();
+				return 1;
+			}
+		}
 		// On Esc (abort) drop non-user internal steers so the post-abort drain can't
 		// auto-resume; plain Alt+Up dequeue preserves them for the continuing stream.
 		const { steering, followUp } = this.ctx.session.clearQueue({ forInterrupt: options?.abort });

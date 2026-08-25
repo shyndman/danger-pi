@@ -9,6 +9,26 @@ import { clampTimeout } from "../tools/tool-timeouts";
 import type { BashExecutionMessage } from "./messages";
 import type { SessionManager } from "./session-manager";
 
+export interface BashSessionExecutionOptions {
+	excludeFromContext?: boolean;
+	useUserShell?: boolean;
+	pty?: BashPtyOptions;
+	delivery?: "session";
+}
+
+export interface BashDeferredExecutionOptions {
+	excludeFromContext?: boolean;
+	useUserShell?: boolean;
+	pty?: BashPtyOptions;
+	delivery: "deferred";
+	timestamp: number;
+}
+
+export interface DeferredBashExecution {
+	result: BashResult;
+	message: BashExecutionMessage;
+}
+
 /** Destination that owns a bash result after a session or branch transition. */
 export type BashAppendDestination =
 	| { kind: "current"; manager: SessionManager }
@@ -66,11 +86,21 @@ export class BashRunner {
 	}
 
 	/** Executes a bash command while retaining the session and branch that owned its start. */
+	executeBash(
+		command: string,
+		onChunk: ((chunk: string) => void) | undefined,
+		options: BashDeferredExecutionOptions,
+	): Promise<DeferredBashExecution>;
+	executeBash(
+		command: string,
+		onChunk?: (chunk: string) => void,
+		options?: BashSessionExecutionOptions,
+	): Promise<BashResult>;
 	async executeBash(
 		command: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean; useUserShell?: boolean; pty?: BashPtyOptions },
-	): Promise<BashResult> {
+		options?: BashSessionExecutionOptions | BashDeferredExecutionOptions,
+	): Promise<BashResult | DeferredBashExecution> {
 		const target = this.#captureSessionTarget();
 		let targetTransferred = false;
 		const excludeFromContext = options?.excludeFromContext === true;
@@ -85,6 +115,12 @@ export class BashRunner {
 					cwd,
 				});
 				if (hookResult?.result) {
+					if (options?.delivery === "deferred") {
+						return {
+							result: hookResult.result,
+							message: this.#createMessage(command, hookResult.result, options, options.timestamp),
+						};
+					}
 					targetTransferred = true;
 					await this.#recordResultForTarget(target, command, hookResult.result, options);
 					return hookResult.result;
@@ -124,6 +160,9 @@ export class BashRunner {
 				});
 			} finally {
 				this.#abortControllers.delete(abortController);
+			}
+			if (options?.delivery === "deferred") {
+				return { result, message: this.#createMessage(command, result, options, options.timestamp) };
 			}
 			targetTransferred = true;
 			await this.#recordResultForTarget(target, command, result, options);
@@ -277,6 +316,7 @@ export class BashRunner {
 		command: string,
 		result: BashResult,
 		options?: { excludeFromContext?: boolean },
+		timestamp = Date.now(),
 	): BashExecutionMessage {
 		const meta = outputMeta().truncationFromSummary(result, { direction: "tail" }).get();
 		return {
@@ -287,7 +327,7 @@ export class BashRunner {
 			cancelled: result.cancelled,
 			truncated: result.truncated,
 			meta,
-			timestamp: Date.now(),
+			timestamp,
 			excludeFromContext: options?.excludeFromContext,
 		};
 	}

@@ -928,6 +928,10 @@ export class EventController {
 				if (event.message.userInitiated) this.#turnStartedAt = event.message.timestamp;
 				else this.#turnStartedAt = undefined;
 			}
+		} else if (event.message.role === "bashExecution" || event.message.role === "pythonExecution") {
+			this.#resetReadGroup();
+			this.ctx.addMessageToChat(event.message);
+			this.ctx.ui.requestRender();
 		} else if (event.message.role === "fileMention") {
 			this.#resetReadGroup();
 			this.ctx.addMessageToChat(event.message);
@@ -2217,6 +2221,7 @@ export class EventController {
 		// Don't schedule idle work while context maintenance is already running; the
 		// maintenance flow may reset the session before this timer fires.
 		if (this.ctx.viewSession.isCompacting) return;
+		if (this.ctx.viewSession.composerBatchCount > 0) return;
 
 		const idleSettings = settings.getGroup("compaction");
 		if (!idleSettings.idleEnabled) return;
@@ -2235,6 +2240,7 @@ export class EventController {
 			// the timer and now, dropping usage back below the idle threshold.
 			if (this.ctx.viewSession.isStreaming) return;
 			if (this.ctx.viewSession.isCompacting) return;
+			if (this.ctx.viewSession.composerBatchCount > 0) return;
 			if (this.ctx.editor.getText().trim()) return;
 			if (this.#currentContextTokens() < threshold) return;
 			void this.ctx.viewSession.runIdleCompaction();

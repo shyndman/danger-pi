@@ -13,6 +13,7 @@ import { AgentLifecycleManager } from "../../registry/agent-lifecycle";
 import { AgentRegistry, MAIN_AGENT_ID, type RegistryEvent } from "../../registry/agent-registry";
 import type { AgentSession } from "../../session/agent-session";
 import { setTerminalTitleState } from "../../utils/title-generator";
+import { detachActiveComposerExecutions } from "../composer-batch-controller";
 import type { InteractiveModeContext } from "../types";
 
 export class SessionFocusController {
@@ -43,6 +44,7 @@ export class SessionFocusController {
 		if (id === MAIN_AGENT_ID) return this.unfocus();
 		const session = await this.lifecycle().ensureLive(id);
 		if (id === this.#focusedAgentId && session === this.#attachedSession) return;
+		detachActiveComposerExecutions(this.ctx.viewSession, this.ctx.pendingMessagesContainer);
 		this.#focusedAgentId = id;
 		this.#attachedSession = session;
 		this.#registryUnsubscribe ??= this.registry.onChange(e => this.#onRegistryEvent(e));
@@ -65,6 +67,7 @@ export class SessionFocusController {
 	/** Return to the main session. No-op when unfocused. */
 	async unfocus(): Promise<void> {
 		if (!this.#focusedAgentId) return;
+		detachActiveComposerExecutions(this.ctx.viewSession, this.ctx.pendingMessagesContainer);
 		this.#focusedAgentId = undefined;
 		this.#attachedSession = undefined;
 		const attached = await this.#attach(this.ctx.session);
@@ -126,6 +129,7 @@ export class SessionFocusController {
 		// own todos rather than overwriting them with the main session's list.
 		await this.ctx.reloadTodos(target);
 		if (generation !== this.#attachGeneration) return false;
+		this.ctx.updatePendingMessagesDisplay();
 		// Sync the run-state title to the attached target: a streaming target has no
 		// agent_start incoming, so arm the loader/working title manually; an idle
 		// target would otherwise inherit the previous session's stuck spinner, so

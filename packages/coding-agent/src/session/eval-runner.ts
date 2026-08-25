@@ -16,6 +16,22 @@ import { outputMeta } from "../tools/output-meta";
 import type { PythonExecutionMessage } from "./messages";
 import type { SessionManager } from "./session-manager";
 
+export interface PythonSessionExecutionOptions {
+	excludeFromContext?: boolean;
+	delivery?: "session";
+}
+
+export interface PythonDeferredExecutionOptions {
+	excludeFromContext?: boolean;
+	delivery: "deferred";
+	timestamp: number;
+}
+
+export interface DeferredPythonExecution {
+	result: PythonResult;
+	message: PythonExecutionMessage;
+}
+
 /** Capabilities the eval runner borrows from its owning session. */
 export interface EvalRunnerHost {
 	agent: Agent;
@@ -43,16 +59,26 @@ export class EvalRunner {
 	}
 
 	/** Executes Python in the session's shared kernel. */
+	executePython(
+		code: string,
+		onChunk: ((chunk: string) => void) | undefined,
+		options: PythonDeferredExecutionOptions,
+	): Promise<DeferredPythonExecution>;
+	executePython(
+		code: string,
+		onChunk?: (chunk: string) => void,
+		options?: PythonSessionExecutionOptions,
+	): Promise<PythonResult>;
 	async executePython(
 		code: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean },
-	): Promise<PythonResult> {
+		options?: PythonSessionExecutionOptions | PythonDeferredExecutionOptions,
+	): Promise<PythonResult | DeferredPythonExecution> {
 		const excludeFromContext = options?.excludeFromContext === true;
 		const cwd = this.#host.sessionManager.getCwd();
 		this.assertExecutionAllowed();
 		const abortController = new AbortController();
-		const execution = (async (): Promise<PythonResult> => {
+		const execution = (async (): Promise<PythonResult | DeferredPythonExecution> => {
 			const extensionRunner = this.#host.extensionRunner();
 			if (extensionRunner?.hasHandlers("user_python")) {
 				const hookResult = await extensionRunner.emitUserPython({
@@ -63,6 +89,12 @@ export class EvalRunner {
 				});
 				this.assertExecutionAllowed();
 				if (hookResult?.result) {
+					if (options?.delivery === "deferred") {
+						return {
+							result: hookResult.result,
+							message: this.#createMessage(code, hookResult.result, options, options.timestamp),
+						};
+					}
 					this.recordPythonResult(code, hookResult.result, options);
 					return hookResult.result;
 				}
@@ -82,6 +114,9 @@ export class EvalRunner {
 				onChunk,
 				signal: abortController.signal,
 			});
+			if (options?.delivery === "deferred") {
+				return { result, message: this.#createMessage(code, result, options, options.timestamp) };
+			}
 			this.recordPythonResult(code, result, options);
 			return result;
 		})();
@@ -112,8 +147,22 @@ export class EvalRunner {
 
 	/** Records a Python execution result in session history. */
 	recordPythonResult(code: string, result: PythonResult, options?: { excludeFromContext?: boolean }): void {
+		const message = this.#createMessage(code, result, options);
+		if (this.#host.isStreaming()) {
+			this.#pendingMessages.push(message);
+		} else {
+			this.#host.appendSessionMessage(message);
+		}
+	}
+
+	#createMessage(
+		code: string,
+		result: PythonResult,
+		options?: { excludeFromContext?: boolean },
+		timestamp = Date.now(),
+	): PythonExecutionMessage {
 		const meta = outputMeta().truncationFromSummary(result, { direction: "tail" }).get();
-		const message: PythonExecutionMessage = {
+		return {
 			role: "pythonExecution",
 			code,
 			output: result.output,
@@ -121,14 +170,9 @@ export class EvalRunner {
 			cancelled: result.cancelled,
 			truncated: result.truncated,
 			meta,
-			timestamp: Date.now(),
+			timestamp,
 			excludeFromContext: options?.excludeFromContext,
 		};
-		if (this.#host.isStreaming()) {
-			this.#pendingMessages.push(message);
-		} else {
-			this.#host.appendSessionMessage(message);
-		}
 	}
 
 	/** Cancels every running Python execution. */

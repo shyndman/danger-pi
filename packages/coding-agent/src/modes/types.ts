@@ -20,7 +20,10 @@ import type { Skill } from "../extensibility/skills";
 import type { MCPManager } from "../mcp";
 import type { PlanApprovalDetails } from "../plan-mode/approved-plan";
 import type { AgentSession } from "../session/agent-session";
+import type { DeferredBashExecution } from "../session/bash-runner";
 import type { CompactMode } from "../session/compact-modes";
+import type { ComposerBatchDraft } from "../session/composer-batch";
+import type { DeferredPythonExecution } from "../session/eval-runner";
 import type { ForeignSessionSource } from "../session/foreign-session-store";
 import type { HistoryStorage } from "../session/history-storage";
 import type { SessionContext } from "../session/session-context";
@@ -39,6 +42,7 @@ import type { StatusLineComponent } from "./components/status-line";
 import type { ToolExecutionHandle } from "./components/tool-execution";
 import type { TranscriptContainer } from "./components/transcript-container";
 import type { RecentSession } from "./components/welcome";
+import type { ComposerBatchSubmission } from "./composer-batch-controller";
 import type { EventController } from "./controllers/event-controller";
 import type { LoopLimitRuntime } from "./loop-limit";
 import type { OAuthManualInputManager } from "./oauth-manual-input";
@@ -70,6 +74,7 @@ export type SubmittedUserInput = {
 	 *  it). Normal user Enter carries "steer" to match the streaming-branch Enter;
 	 *  background/continuation submits omit it and default to "followUp". */
 	streamingBehavior?: "steer" | "followUp";
+	composerBatch?: ComposerBatchSubmission;
 	cancelled: boolean;
 	started: boolean;
 };
@@ -304,6 +309,7 @@ export interface InteractiveModeContext {
 		customType?: string;
 		display?: boolean;
 		streamingBehavior?: "steer" | "followUp";
+		composerBatch?: ComposerBatchSubmission;
 	}): SubmittedUserInput;
 	cancelPendingSubmission(): boolean;
 	markPendingSubmissionStarted(input: SubmittedUserInput): boolean;
@@ -393,8 +399,18 @@ export interface InteractiveModeContext {
 	handleResetContextCommand(): Promise<void>;
 	handleDropCommand(): Promise<void>;
 	handleForkCommand(): Promise<void>;
-	handleBashCommand(command: string, excludeFromContext?: boolean): Promise<void>;
-	handlePythonCommand(code: string, excludeFromContext?: boolean): Promise<void>;
+	handleBashCommand(
+		command: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredBashExecution>;
+	handleBashCommand(command: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
+	handlePythonCommand(
+		code: string,
+		excludeFromContext: boolean,
+		destination: { kind: "composerBatch"; draft: ComposerBatchDraft },
+	): Promise<DeferredPythonExecution>;
+	handlePythonCommand(code: string, excludeFromContext?: boolean, destination?: { kind: "session" }): Promise<void>;
 	handleMCPCommand(text: string): Promise<void>;
 	handleSSHCommand(text: string): Promise<void>;
 	handleCompactCommand(

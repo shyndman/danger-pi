@@ -117,7 +117,7 @@ import {
 import { RawSseDebugBuffer } from "../debug/raw-sse-buffer";
 import { getFileSnapshotStore } from "../edit/file-snapshot-store";
 import type { PythonResult } from "../eval/py/executor";
-import type { BashPtyOptions, BashResult } from "../exec/bash-executor";
+import type { BashResult } from "../exec/bash-executor";
 import type { TtsrManager } from "../export/ttsr";
 import type { LoadedCustomCommand } from "../extensibility/custom-commands";
 import type { CustomTool } from "../extensibility/custom-tools/types";
@@ -256,7 +256,13 @@ import {
 	type AsyncResultEntry,
 	buildAsyncResultBatchMessage,
 } from "./async-job-delivery";
-import { BashRunner, type BashRunnerHost } from "./bash-runner";
+import {
+	type BashDeferredExecutionOptions,
+	BashRunner,
+	type BashRunnerHost,
+	type BashSessionExecutionOptions,
+	type DeferredBashExecution,
+} from "./bash-runner";
 import {
 	checkpointStartedAtFromEntry,
 	completedRewindFromEntry,
@@ -278,8 +284,23 @@ import {
 	shouldEvaluateCodexAutoRedeem,
 	shouldPromptCodexAutoRedeem,
 } from "./codex-auto-reset";
+import {
+	ComposerBatch,
+	ComposerBatchCoordinator,
+	type ComposerBatchCoordinatorHost,
+	type ComposerBatchDispatch,
+	type ComposerBatchInput,
+	type ComposerBatchMessage,
+	type PreparedComposerBatchItem,
+} from "./composer-batch";
 import { recordCredentialPin, seedCredentialPins } from "./credential-pin";
-import { EvalRunner, type EvalRunnerHost } from "./eval-runner";
+import {
+	type DeferredPythonExecution,
+	EvalRunner,
+	type EvalRunnerHost,
+	type PythonDeferredExecutionOptions,
+	type PythonSessionExecutionOptions,
+} from "./eval-runner";
 import {
 	collectPendingToolCalls,
 	createInterruptedTurnAbortMessage,
@@ -593,6 +614,8 @@ export class AgentSession {
 	readonly #bash: BashRunner;
 
 	readonly #eval: EvalRunner;
+	#composerBatch: ComposerBatch | undefined;
+	#composerBatchCoordinator: ComposerBatchCoordinator | undefined;
 	/**
 	 * AsyncJobManager owned by this session (top-level only). Subagents leave
 	 * this undefined and **MUST NOT** dispose the global instance on teardown.
@@ -2529,6 +2552,11 @@ export class AgentSession {
 	}
 
 	#persistMessageEnd(message: AgentMessage): void {
+		if (this.#composerBatchCoordinator?.consumePrePersisted(message)) return;
+		if (message.role === "bashExecution" || message.role === "pythonExecution") {
+			this.#appendSessionMessage(message);
+			return;
+		}
 		if (message.role === "hookMessage" || message.role === "custom") {
 			// Prewalk's plan nudge is a one-run steering instruction. Persisting it would
 			// resurrect the consumed prompt on resume, fork, or any context rebuild.
@@ -2633,6 +2661,7 @@ export class AgentSession {
 	}
 
 	#processAgentEvent = async (event: AgentEvent): Promise<void> => {
+		if (event.type === "message_start") this.#composerBatchCoordinator?.onMessageStart(event.message);
 		// A fresh run supersedes the previously settled (and pruned) refusal
 		// turn: state-based lookups take over again.
 		if (event.type === "agent_start") {
@@ -5640,8 +5669,7 @@ export class AgentSession {
 		return this.settings.get("magicKeywords.enabled") && this.settings.get(`magicKeywords.${keyword}`);
 	}
 
-	#createMagicKeywordNotices(text: string): CustomMessage[] {
-		const timestamp = Date.now();
+	#createMagicKeywordNotices(text: string, timestamp = Date.now()): CustomMessage[] {
 		const turnBudget = parseTurnBudget(text);
 		this.sessionManager.beginTurnBudget(turnBudget?.total ?? null, turnBudget?.hard ?? false);
 		const keywordNotices: CustomMessage[] = [];
@@ -5687,6 +5715,122 @@ export class AgentSession {
 			}
 		}
 		return keywordNotices;
+	}
+	get composerBatch(): ComposerBatch {
+		this.#composerBatch ??= new ComposerBatch(() => this.sessionId);
+		return this.#composerBatch;
+	}
+
+	get composerBatchCount(): number {
+		return this.composerBatch.workCount;
+	}
+
+	prepareComposerBatchItem(input: ComposerBatchInput): Promise<PreparedComposerBatchItem | undefined> {
+		return this.#getComposerBatchCoordinator().prepare(input);
+	}
+
+	promptComposerBatch(dispatch: ComposerBatchDispatch): Promise<void> {
+		return this.#getComposerBatchCoordinator().prompt(dispatch);
+	}
+
+	#getComposerBatchCoordinator(): ComposerBatchCoordinator {
+		if (this.#composerBatchCoordinator) return this.#composerBatchCoordinator;
+		const host: ComposerBatchCoordinatorHost = {
+			agentMessages: this.agent,
+			sessionId: () => this.sessionId,
+			prepare: input => this.#prepareComposerBatchInput(input),
+			prompt: (message, turnText, options) =>
+				this.#promptWithMessage(message, turnText, {
+					images: [...options.images],
+					prependMessages: options.prependMessages,
+					userAuthoredTurn: options.userAuthoredTurn,
+					canStart: options.canStart,
+					onAccepted: options.onAccepted,
+				}),
+			persist: message => {
+				this.#appendSessionMessage(message);
+			},
+			emitMessage: (message, phase) =>
+				this.#emitSessionEvent({ type: phase === "start" ? "message_start" : "message_end", message }),
+			waitForSubscribers: async () => {
+				await this.#subscriberEmitGate;
+			},
+		};
+		this.#composerBatchCoordinator = new ComposerBatchCoordinator(host);
+		return this.#composerBatchCoordinator;
+	}
+
+	async #prepareComposerBatchInput(input: ComposerBatchInput): Promise<PreparedComposerBatchItem | undefined> {
+		switch (input.kind) {
+			case "prompt":
+				return await this.#prepareComposerBatchPrompt(input);
+			case "custom":
+				return await this.#prepareComposerBatchCustom(input);
+			case "execution": {
+				const message = { ...input.message, timestamp: input.timestamp };
+				return {
+					promptText: "",
+					images: input.images,
+					messages: [message],
+					modelVisible: message.excludeFromContext !== true,
+				};
+			}
+		}
+	}
+
+	async #prepareComposerBatchPrompt(
+		input: Extract<ComposerBatchInput, { kind: "prompt" }>,
+	): Promise<PreparedComposerBatchItem | undefined> {
+		let text = input.text;
+		if (input.resolveCommands && text.startsWith("/")) {
+			if (await this.#tryExecuteExtensionCommand(text)) return undefined;
+			const customResult = await this.#tryExecuteCustomCommand(text);
+			if (customResult !== null) {
+				if (customResult === "") return undefined;
+				text = customResult;
+			}
+			if (text.startsWith("/")) text = expandSlashCommand(text, this.#slashCommands);
+		}
+		if (input.resolveCommands) text = expandPromptTemplate(text, [...this.#promptTemplates]);
+		const normalizedImages = (await this.#normalizeImagesForModel([...input.images])) ?? [];
+		const content: (TextContent | ImageContent)[] = [{ type: "text", text }, ...normalizedImages];
+		const userMessage: UserMessage = {
+			role: "user",
+			content,
+			attribution: "user",
+			timestamp: input.timestamp,
+		};
+		const notices = this.#createMagicKeywordNotices(text, input.timestamp);
+		const imageNotice =
+			normalizedImages.length > 0 ? await this.#buildImageDescriptionNotice(normalizedImages) : undefined;
+		const messages: [ComposerBatchMessage, ...ComposerBatchMessage[]] = [userMessage];
+		messages.unshift(...notices);
+		if (imageNotice) messages.splice(notices.length, 0, { ...imageNotice, timestamp: input.timestamp });
+		return { promptText: text, images: normalizedImages, messages, modelVisible: true };
+	}
+
+	async #prepareComposerBatchCustom(
+		input: Extract<ComposerBatchInput, { kind: "custom" }>,
+	): Promise<PreparedComposerBatchItem> {
+		const normalizedImages = (await this.#normalizeImagesForModel([...input.images])) ?? [];
+		const message: CustomMessage = { role: "custom", ...input.message, timestamp: input.timestamp };
+		const notices =
+			message.customType === SKILL_PROMPT_MESSAGE_TYPE
+				? this.#createMagicKeywordNotices(
+						message.details && typeof message.details === "object" && "args" in message.details
+							? String(message.details.args ?? "")
+							: "",
+						input.timestamp,
+					)
+				: [];
+		const messages: [ComposerBatchMessage, ...ComposerBatchMessage[]] = [message];
+		messages.unshift(...notices);
+		return {
+			promptText: input.promptText,
+			images: normalizedImages,
+			messages,
+			modelVisible: true,
+		};
 	}
 
 	/**
@@ -5944,6 +6088,9 @@ export class AgentSession {
 			prependMessages?: AgentMessage[];
 			skipPostPromptRecoveryWait?: boolean;
 			acceptTerminalEmptyStop?: boolean;
+			userAuthoredTurn?: boolean;
+			canStart?: () => boolean;
+			onAccepted?: () => void;
 		},
 	): Promise<boolean> {
 		// Returns false when the prompt was dropped before reaching the agent —
@@ -6107,7 +6254,10 @@ export class AgentSession {
 				this.agent.setSystemPrompt(beforeAgentStartSystemPrompt);
 			}
 
-			// Bail out if a newer abort/prompt cycle has started since we began setup
+			const isUserTurn =
+				options?.userAuthoredTurn === true ||
+				message.role === "user" ||
+				(message.role === "custom" && isUserInvokedSkillPrompt(message));
 			if (this.#promptGeneration !== generation) {
 				return false;
 			}
@@ -6119,7 +6269,6 @@ export class AgentSession {
 			// (developer roles), agent-originated or autoloaded skill injections, and
 			// non-auto sessions are skipped. Never blocks the turn — failures fall
 			// back to a concrete level inside the helper.
-			const isUserTurn = message.role === "user" || (message.role === "custom" && isUserInvokedSkillPrompt(message));
 			if (this.isAutoThinking && isUserTurn) {
 				await this.#models.applyAutoThinkingLevel(expandedText, generation);
 				if (this.#promptGeneration !== generation) {
@@ -6164,7 +6313,10 @@ export class AgentSession {
 				this.#planReferenceSent = true;
 			}
 			try {
-				await this.#recovery.promptAgentWithIdleRetry(messages, agentPromptOptions);
+				await this.#recovery.promptAgentWithIdleRetry(messages, agentPromptOptions, {
+					canStart: options?.canStart,
+					onAccepted: options?.onAccepted,
+				});
 			} finally {
 				this.#stats.setPendingSnapshot(undefined);
 			}
@@ -7981,9 +8133,20 @@ export class AgentSession {
 	 */
 	executeBash(
 		command: string,
+		onChunk: ((chunk: string) => void) | undefined,
+		options: BashDeferredExecutionOptions,
+	): Promise<DeferredBashExecution>;
+	executeBash(
+		command: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean; useUserShell?: boolean; pty?: BashPtyOptions },
-	): Promise<BashResult> {
+		options?: BashSessionExecutionOptions,
+	): Promise<BashResult>;
+	executeBash(
+		command: string,
+		onChunk?: (chunk: string) => void,
+		options?: BashSessionExecutionOptions | BashDeferredExecutionOptions,
+	): Promise<BashResult | DeferredBashExecution> {
+		if (options?.delivery === "deferred") return this.#bash.executeBash(command, onChunk, options);
 		return this.#bash.executeBash(command, onChunk, options);
 	}
 
@@ -8020,9 +8183,20 @@ export class AgentSession {
 	 */
 	executePython(
 		code: string,
+		onChunk: ((chunk: string) => void) | undefined,
+		options: PythonDeferredExecutionOptions,
+	): Promise<DeferredPythonExecution>;
+	executePython(
+		code: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean },
-	): Promise<PythonResult> {
+		options?: PythonSessionExecutionOptions,
+	): Promise<PythonResult>;
+	executePython(
+		code: string,
+		onChunk?: (chunk: string) => void,
+		options?: PythonSessionExecutionOptions | PythonDeferredExecutionOptions,
+	): Promise<PythonResult | DeferredPythonExecution> {
+		if (options?.delivery === "deferred") return this.#eval.executePython(code, onChunk, options);
 		return this.#eval.executePython(code, onChunk, options);
 	}
 

@@ -94,6 +94,7 @@ function makeHarness(options: { renderInitialMessages?: () => void | Promise<voi
 		reloadTodos: async (source?: AgentSession) => {
 			reloadTodoSessions.push(source ?? main.session);
 		},
+		updatePendingMessagesDisplay() {},
 		updateEditorBorderColor() {},
 		ui: { requestRender() {} },
 		showStatus() {},
