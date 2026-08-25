@@ -309,7 +309,7 @@ export async function submitInteractiveInput(
 		"markPendingSubmissionStarted" | "finishPendingSubmission" | "showError" | "checkShutdownRequested"
 	> &
 		Partial<Pick<InteractiveMode, "loopPrompt" | "pauseLoop">>,
-	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "isStreaming">,
+	session: Pick<AgentSession, "prompt" | "promptCustomMessage" | "promptComposerBatch" | "isStreaming">,
 	input: SubmittedUserInput,
 ): Promise<void> {
 	if (input.cancelled) {
@@ -334,6 +334,10 @@ export async function submitInteractiveInput(
 		// Continue shortcuts submit an already-started synthetic developer prompt with
 		// no optimistic user message.
 		if (!input.started && !mode.markPendingSubmissionStarted(input)) {
+			return;
+		}
+		if (input.composerBatch) {
+			await session.promptComposerBatch(input.composerBatch.dispatch);
 			return;
 		}
 		if (input.customType) {
@@ -374,6 +378,7 @@ export async function submitInteractiveInput(
 		const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 		mode.showError(errorMessage);
 	} finally {
+		input.composerBatch?.finish();
 		mode.finishPendingSubmission(input);
 		await mode.checkShutdownRequested();
 	}

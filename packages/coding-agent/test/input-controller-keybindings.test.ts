@@ -5,6 +5,7 @@ import { TreeSelectorComponent } from "@oh-my-pi/pi-coding-agent/modes/component
 import { InputController } from "@oh-my-pi/pi-coding-agent/modes/controllers/input-controller";
 import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
+import { ComposerBatch } from "@oh-my-pi/pi-coding-agent/session/composer-batch";
 import type { SessionTreeNode } from "@oh-my-pi/pi-coding-agent/session/session-entries";
 import { type KeyId, matchesKey } from "@oh-my-pi/pi-tui";
 import manualContinuePrompt from "../src/prompts/system/manual-continue.md" with { type: "text" };
@@ -100,7 +101,31 @@ async function createContext() {
 	const prompt = vi.fn(async () => {});
 	const retry = vi.fn(async () => true);
 	const abort = vi.fn(async () => {});
+	const sessionId = "keybinding-test-session";
+	const composerBatch = new ComposerBatch(() => sessionId);
+	const prepareComposerBatchItem = vi.fn(async input => ({
+		promptText: "text" in input ? input.text : "",
+		images: input.images,
+		messages: [
+			{
+				role: "user" as const,
+				content: [{ type: "text" as const, text: "text" in input ? input.text : "" }],
+				timestamp: input.timestamp,
+			},
+		],
+		modelVisible: true,
+	}));
+	const promptComposerBatch = vi.fn(async dispatch => {
+		dispatch.accept();
+	});
 	const session = {
+		sessionId,
+		composerBatch,
+		get composerBatchCount() {
+			return composerBatch.workCount;
+		},
+		prepareComposerBatchItem,
+		promptComposerBatch,
 		isStreaming: false,
 		isCompacting: false,
 		isGeneratingHandoff: false,
@@ -255,6 +280,7 @@ async function createContext() {
 			setActionKeys,
 			showModelSelector,
 			prompt,
+			prepareComposerBatchItem,
 			updatePendingMessagesDisplay,
 			requestRender,
 			retry,
@@ -611,39 +637,31 @@ describe("InputController keybinding setup", () => {
 		expect(spies.updatePendingMessagesDisplay).toHaveBeenCalledTimes(1);
 	});
 
-	it("marks idle follow-up submissions as local", async () => {
+	it("stages idle follow-up submissions without prompting", async () => {
 		const { InputController, ctx, editor, spies } = await createContext();
-		// Default fake session is idle.
 		editor.setText("plain idle submit");
 		const controller = new InputController(ctx);
 
 		await controller.handleFollowUp();
 
-		expect(ctx.locallySubmittedUserSignatures.has("plain idle submit\u00000")).toBe(true);
-		// Idle submit calls prompt() with no streamingBehavior (images forwarded, undefined here).
-		expect(spies.prompt).toHaveBeenCalledWith("plain idle submit", { images: undefined });
+		expect(ctx.session.composerBatch.entries.map(entry => entry.draft.text)).toEqual(["plain idle submit"]);
+		expect(spies.prompt).not.toHaveBeenCalled();
+		expect(editor.getText()).toBe("");
 	});
 
-	it("surfaces and recovers from an idle follow-up dispatch failure", async () => {
+	it("restores an idle follow-up when batch preparation fails", async () => {
 		const { InputController, ctx, editor, spies } = await createContext();
-		spies.prompt.mockImplementationOnce(async () => {
+		spies.prepareComposerBatchItem.mockImplementationOnce(async () => {
 			throw new Error("boom");
 		});
 		editor.setText("doomed submit");
 		const controller = new InputController(ctx);
 
-		// Dispatch failures are caught and surfaced (mirroring the main/focused
-		// submit paths), not rethrown, so the keybinding's fire-and-forget call
-		// never raises an unhandled rejection.
 		await controller.handleFollowUp();
 
 		expect(spies.showError).toHaveBeenCalledWith("boom");
-		// Draft handed back so the user can retry.
 		expect(editor.getText()).toBe("doomed submit");
-		// Contract: a failed delivery must not leave a stale signature behind,
-		// otherwise the next attempt with the same text would silently suppress
-		// the editor-clear protection that was meant for the failed call.
-		expect(ctx.locallySubmittedUserSignatures.has("doomed submit\u00000")).toBe(false);
+		expect(ctx.session.composerBatch.size).toBe(0);
 	});
 
 	it("surfaces and recovers from a streaming follow-up dispatch failure", async () => {

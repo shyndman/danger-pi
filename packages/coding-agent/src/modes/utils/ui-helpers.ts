@@ -40,6 +40,7 @@ import {
 import { TranscriptBlock, TranscriptContainer } from "../../modes/components/transcript-container";
 import { createUsageRowBlock, turnElapsedMs } from "../../modes/components/usage-row";
 import { UserMessageComponent } from "../../modes/components/user-message";
+import { appendComposerBatchExecutions, detachActiveComposerExecutions } from "../../modes/composer-batch-controller";
 import { decodeStreamedToolArgs, streamingStringKeysForTool } from "../../modes/controllers/tool-args-reveal";
 import { materializeImageReferenceLinksSync } from "../../modes/image-references";
 import { videoPreviewSource } from "../../utils/video";
@@ -1066,9 +1067,11 @@ export class UiHelpers {
 	}
 
 	updatePendingMessagesDisplay(): void {
+		detachActiveComposerExecutions(this.ctx.viewSession, this.ctx.pendingMessagesContainer);
 		this.ctx.pendingMessagesContainer.disposeChildren();
 		const queuedMessages = this.ctx.viewSession.getQueuedMessages() as QueuedMessages;
 
+		const batchMessages = this.ctx.viewSession.composerBatch.entries.map(entry => entry.draft.text);
 		const steeringMessages = [...queuedMessages.steering];
 		for (const entry of this.ctx.compactionQueuedMessages as CompactionQueuedMessage[]) {
 			if (entry.mode === "steer") steeringMessages.push(entry.text);
@@ -1080,6 +1083,7 @@ export class UiHelpers {
 		}
 
 		const groups = [
+			{ label: "Batch", messages: batchMessages },
 			{ label: "Steering", messages: steeringMessages },
 			{ label: "After yield", messages: followUpMessages },
 		].filter(group => group.messages.length > 0);
@@ -1098,6 +1102,7 @@ export class UiHelpers {
 			const hintText = theme.fg("dim", `  ${theme.tree.hook} ${dequeueKey} to edit`);
 			this.ctx.pendingMessagesContainer.addChild(new TruncatedText(hintText, 1, 0));
 		}
+		appendComposerBatchExecutions(this.ctx.viewSession, this.ctx.pendingMessagesContainer, this.ctx.ui);
 		this.ctx.ui.requestComponentRender(this.ctx.pendingMessagesContainer);
 	}
 
